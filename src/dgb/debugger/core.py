@@ -257,6 +257,12 @@ class Debugger:
             size=0
         )
 
+        # Try to resolve pending breakpoints for this module
+        if self.breakpoint_manager:
+            resolved = self.breakpoint_manager.resolve_pending_breakpoints_for_module(module_name)
+            if resolved:
+                print(f"[DLL Load] Resolved {len(resolved)} pending breakpoint(s) for {module_name}")
+
     def _on_exception(self, event):
         """Handle EXCEPTION_DEBUG_EVENT.
 
@@ -478,10 +484,10 @@ class Debugger:
             win32api.close_handle(self.process_handle)
 
     def set_breakpoint(self, location: str) -> bool:
-        """Set a breakpoint.
+        """Set a breakpoint (supports deferred/pending breakpoints).
 
         Args:
-            location: Either "file:line" or "0xaddress"
+            location: Either "file:line", "module.dll:line", or "0xaddress"
 
         Returns:
             True if successful
@@ -490,38 +496,21 @@ class Debugger:
             print("Process not started")
             return False
 
-        # Try to parse as address
-        if location.startswith('0x') or location.isdigit():
-            try:
-                address = int(location, 16 if location.startswith('0x') else 10)
-                bp = self.breakpoint_manager.set_breakpoint_at_address(address)
-                if bp:
-                    print(f"Breakpoint {bp.id} set at 0x{address:08x}")
-                    return True
-                return False
-            except ValueError:
-                pass
-
-        # Try to parse as file:line
-        if ':' in location:
-            parts = location.rsplit(':', 1)
-            if len(parts) == 2:
-                filename, line_str = parts
-                try:
-                    line = int(line_str)
-                    bp = self.breakpoint_manager.set_breakpoint_at_line(filename, line)
-                    if bp:
-                        print(f"Breakpoint {bp.id} set at {filename}:{line}")
-                        return True
-                    return False
-                except ValueError:
-                    pass
-
-        print(f"Invalid breakpoint location: {location}")
+        # Use deferred breakpoint logic (handles both immediate and pending)
+        bp = self.breakpoint_manager.set_breakpoint_deferred(location)
+        if bp:
+            if bp.status == "pending":
+                print(f"Breakpoint {bp.id} set (pending): {location}")
+                print(f"  Will activate when module loads")
+            else:
+                print(f"Breakpoint {bp.id} set at 0x{bp.address:08x}")
+                if bp.file and bp.line:
+                    print(f"  Location: {bp.file}:{bp.line}")
+            return True
         return False
 
     def list_breakpoints(self):
-        """List all breakpoints."""
+        """List all breakpoints (including pending)."""
         if not self.breakpoint_manager:
             print("No breakpoints")
             return
@@ -533,13 +522,20 @@ class Debugger:
 
         print("Breakpoints:")
         for bp in breakpoints:
-            status = "enabled" if bp.enabled else "disabled"
-            location = f"0x{bp.address:08x}"
-            if bp.file and bp.line:
-                location += f" ({Path(bp.file).name}:{bp.line})"
-            if bp.module_name:
-                location += f" [{bp.module_name}]"
-            print(f"  {bp.id}: {location} - {status} (hit {bp.hit_count} times)")
+            if bp.status == "pending":
+                # Pending breakpoint - not yet resolved
+                print(f"  {bp.id}: {bp.pending_location} - PENDING")
+                if bp.module_name:
+                    print(f"      (waiting for {bp.module_name})")
+            else:
+                # Active breakpoint
+                status = "enabled" if bp.enabled else "disabled"
+                location = f"0x{bp.address:08x}"
+                if bp.file and bp.line:
+                    location += f" ({Path(bp.file).name}:{bp.line})"
+                if bp.module_name:
+                    location += f" [{bp.module_name}]"
+                print(f"  {bp.id}: {location} - {status} (hit {bp.hit_count} times)")
 
     def list_modules(self):
         """List all loaded modules."""

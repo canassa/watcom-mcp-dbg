@@ -178,16 +178,24 @@ class DebuggerWrapper:
                         bp_list = self.debugger.breakpoint_manager.get_all_breakpoints()
                         if bp_list:
                             last_bp = bp_list[-1]
-                            return CommandResult(
-                                success=True,
-                                data={
-                                    'breakpoint_id': last_bp.id,
+                            data = {
+                                'breakpoint_id': last_bp.id,
+                                'status': last_bp.status
+                            }
+
+                            if last_bp.status == "active":
+                                data.update({
                                     'address': last_bp.address,
                                     'file': last_bp.file,
                                     'line': last_bp.line,
                                     'module_name': last_bp.module_name
-                                }
-                            )
+                                })
+                            else:  # pending
+                                data.update({
+                                    'pending_location': last_bp.pending_location
+                                })
+
+                            return CommandResult(success=True, data=data)
                     return CommandResult(success=False, error="Failed to set breakpoint")
 
                 elif cmd.type == CommandType.STOP:

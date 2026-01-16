@@ -263,11 +263,21 @@ def debugger_continue(session_manager: SessionManager, args: dict) -> dict:
     if not session.debugger.context.is_stopped():
         return {'success': False, 'error': 'Process not stopped'}
 
-    print(f"[debugger_continue] Resuming execution", flush=True)
+    print(f"[debugger_continue] Resuming execution, state={session.debugger.context.state.value}", flush=True)
 
     # Simply set the state to running - the persistent event loop will continue
+    # The breakpoint restoration logic happens automatically:
+    # 1. on_breakpoint_hit() already restored original byte and rewound EIP
+    # 2. _handle_breakpoint() already set trap flag for single-step
+    # 3. When we set state to running, persistent loop calls run_event_loop()
+    # 4. Single-step fires, _handle_single_step() re-enables breakpoint
     session.debugger.context.set_running()
+
+    # CRITICAL: Must set waiting_for_event = True so run_event_loop() will continue processing
+    # When breakpoint hits, event loop sets this to False and exits (line 141 in core.py)
     session.debugger.waiting_for_event = True
+
+    print(f"[debugger_continue] State changed to running, waiting_for_event={session.debugger.waiting_for_event}", flush=True)
 
     return {
         'success': True,
@@ -354,14 +364,25 @@ def debugger_set_breakpoint(session_manager: SessionManager, args: dict) -> dict
             bp_list = session.debugger.breakpoint_manager.get_all_breakpoints()
             if bp_list:
                 last_bp = bp_list[-1]
-                return {
+                result = {
                     'success': True,
                     'breakpoint_id': f"bp_{last_bp.id}",
-                    'address': f"0x{last_bp.address:08x}",
-                    'file': last_bp.file,
-                    'line': last_bp.line,
-                    'module_name': last_bp.module_name
+                    'status': last_bp.status
                 }
+
+                if last_bp.status == "active":
+                    result.update({
+                        'address': f"0x{last_bp.address:08x}",
+                        'file': last_bp.file,
+                        'line': last_bp.line,
+                        'module_name': last_bp.module_name
+                    })
+                else:  # pending
+                    result.update({
+                        'location': last_bp.pending_location,
+                        'message': 'Breakpoint pending - will activate when module loads'
+                    })
+                return result
         return {'success': False, 'error': 'Failed to set breakpoint'}
 
     # Use command queue for running debugger
@@ -370,14 +391,25 @@ def debugger_set_breakpoint(session_manager: SessionManager, args: dict) -> dict
     )
     if cmd_result.success:
         data = cmd_result.data
-        return {
+        result = {
             'success': True,
             'breakpoint_id': f"bp_{data['breakpoint_id']}",
-            'address': f"0x{data['address']:08x}",
-            'file': data.get('file'),
-            'line': data.get('line'),
-            'module_name': data.get('module_name')
+            'status': data['status']
         }
+
+        if data['status'] == "active":
+            result.update({
+                'address': f"0x{data['address']:08x}",
+                'file': data.get('file'),
+                'line': data.get('line'),
+                'module_name': data.get('module_name')
+            })
+        else:  # pending
+            result.update({
+                'location': data.get('pending_location'),
+                'message': 'Breakpoint pending - will activate when module loads'
+            })
+        return result
     else:
         return {'success': False, 'error': cmd_result.error}
 
@@ -409,16 +441,25 @@ def debugger_list_breakpoints(session_manager: SessionManager, args: dict) -> di
     for bp in session.debugger.breakpoint_manager.get_all_breakpoints():
         bp_info = {
             'breakpoint_id': f"bp_{bp.id}",
-            'address': f"0x{bp.address:08x}",
-            'enabled': bp.enabled,
-            'hit_count': bp.hit_count
+            'status': bp.status
         }
-        if bp.file and bp.line:
-            bp_info['location'] = f"{Path(bp.file).name}:{bp.line}"
-            bp_info['file'] = bp.file
-            bp_info['line'] = bp.line
-        if bp.module_name:
-            bp_info['module_name'] = bp.module_name
+
+        if bp.status == "active":
+            bp_info.update({
+                'address': f"0x{bp.address:08x}",
+                'enabled': bp.enabled,
+                'hit_count': bp.hit_count
+            })
+            if bp.file and bp.line:
+                bp_info['location'] = f"{Path(bp.file).name}:{bp.line}"
+                bp_info['file'] = bp.file
+                bp_info['line'] = bp.line
+            if bp.module_name:
+                bp_info['module_name'] = bp.module_name
+        else:  # pending
+            bp_info['location'] = bp.pending_location
+            if bp.module_name:
+                bp_info['module_name'] = bp.module_name
 
         breakpoints.append(bp_info)
 

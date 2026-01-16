@@ -184,11 +184,22 @@ class MCPHandler:
 
         elif params.name == "debugger_set_breakpoint":
             bp_id = tool_result.get('breakpoint_id')
-            address = tool_result.get('address')
-            location = ""
-            if tool_result.get('file') and tool_result.get('line'):
-                location = f" ({tool_result['file']}:{tool_result['line']})"
-            text_lines.append(f"✓ Breakpoint {bp_id} set at {address}{location}")
+            bp_status = tool_result.get('status', 'active')
+
+            if bp_status == 'pending':
+                # Pending breakpoint
+                location = tool_result.get('location', '')
+                message = tool_result.get('message', '')
+                text_lines.append(f"✓ Breakpoint {bp_id} set (pending): {location}")
+                if message:
+                    text_lines.append(f"  {message}")
+            else:
+                # Active breakpoint
+                address = tool_result.get('address')
+                location = ""
+                if tool_result.get('file') and tool_result.get('line'):
+                    location = f" ({tool_result['file']}:{tool_result['line']})"
+                text_lines.append(f"✓ Breakpoint {bp_id} set at {address}{location}")
 
         elif params.name == "debugger_list_breakpoints":
             breakpoints = tool_result.get('breakpoints', [])
@@ -198,11 +209,19 @@ class MCPHandler:
                 text_lines.append(f"Breakpoints ({len(breakpoints)}):")
                 for bp in breakpoints:
                     bp_id = bp['breakpoint_id']
-                    address = bp['address']
-                    location = bp.get('location', '')
-                    status = "enabled" if bp['enabled'] else "disabled"
-                    hits = bp['hit_count']
-                    text_lines.append(f"  {bp_id}: {address} {location} - {status} (hit {hits}x)")
+                    bp_status = bp.get('status', 'active')
+
+                    if bp_status == 'pending':
+                        # Pending breakpoint - no address yet
+                        location = bp.get('location', '')
+                        text_lines.append(f"  {bp_id}: {location} - PENDING")
+                    else:
+                        # Active breakpoint
+                        address = bp['address']
+                        location = bp.get('location', '')
+                        status = "enabled" if bp['enabled'] else "disabled"
+                        hits = bp['hit_count']
+                        text_lines.append(f"  {bp_id}: {address} {location} - {status} (hit {hits}x)")
 
         elif params.name == "debugger_get_registers":
             registers = tool_result.get('registers', {})
