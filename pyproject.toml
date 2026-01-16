@@ -1,0 +1,29 @@
+[project]
+name = "dgb"
+version = "0.1.0"
+description = "MCP server for debugging Windows PE with Watcom DWARF 2"
+readme = "README.md"
+authors = [
+    { name = "Cesar Canassa", email = "cesar@canassa.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pyelftools>=0.30",
+    "pefile>=2023.2.7",
+    "litestar>=2.11.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+dgb-server = "dgb.server.main:main"
+
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
