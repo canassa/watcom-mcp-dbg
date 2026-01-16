@@ -23,6 +23,7 @@ class Module:
     has_debug_info: bool = False  # Whether DWARF info was found
     parser: Optional[WatcomDwarfParser] = None  # DWARF parser if debug info exists
     line_info: Optional[LineInfo] = None  # Line info if debug info exists
+    code_section_offset: int = 0  # Virtual address offset of code section (e.g., 0x1000 for AUTO section)
 
 
 class ModuleManager:
@@ -62,6 +63,37 @@ class ModuleManager:
         # Try to extract DWARF info
         self._load_debug_info(module)
 
+    def _get_code_section_offset(self, pe_path: str) -> int:
+        """Get the virtual address offset of the code section.
+
+        For Watcom DLLs, this is typically the AUTO section at virtual address 0x1000.
+        DWARF addresses are relative to this section, not the module base.
+
+        Args:
+            pe_path: Path to PE file
+
+        Returns:
+            Virtual address offset of code section (typically 0x1000), or 0 if not found
+        """
+        try:
+            import pefile
+            pe = pefile.PE(pe_path)
+
+            # Look for code section (typically named 'AUTO' for Watcom)
+            for section in pe.sections:
+                name = section.Name.decode('utf-8').rstrip('\x00')
+                # AUTO is the code section in Watcom DLLs
+                # Also check for IMAGE_SCN_MEM_EXECUTE flag (0x20000000)
+                if name == 'AUTO' or (section.Characteristics & 0x20000000):
+                    return section.VirtualAddress
+
+            # Fallback: return 0 if no code section found
+            return 0
+        except Exception as e:
+            # If we can't parse PE, assume no offset
+            print(f"[Module] Could not determine code section offset: {e}")
+            return 0
+
     def _load_debug_info(self, module: Module):
         """Try to load DWARF debug information for a module.
 
@@ -75,6 +107,12 @@ class ModuleManager:
         if not Path(module.path).exists():
             print(f"[Module] {module.name}: File not found at {module.path}")
             return
+
+        # Get code section offset for DWARF address calculation
+        # DWARF addresses are section-relative, not module-relative
+        module.code_section_offset = self._get_code_section_offset(module.path)
+        if module.code_section_offset > 0:
+            print(f"[Module] {module.name}: Code section offset = 0x{module.code_section_offset:x}")
 
         parser = WatcomDwarfParser(module.path)
         dwarf_info = parser.extract_dwarf_info()
@@ -140,8 +178,9 @@ class ModuleManager:
         if not module or not module.line_info:
             return None
 
-        # Convert absolute address to module-relative address
-        relative_addr = absolute_address - module.base_address
+        # Convert absolute address to DWARF-relative address
+        # DWARF addresses are section-relative, not module-relative
+        relative_addr = absolute_address - module.base_address - module.code_section_offset
 
         # Look up line info
         loc = module.line_info.address_to_line(relative_addr)
@@ -168,9 +207,11 @@ class ModuleManager:
                 continue
 
             # Try to resolve in this module
-            relative_addr = module.line_info.line_to_address(filename, line)
-            if relative_addr is not None:
-                absolute_addr = module.base_address + relative_addr
+            dwarf_relative_addr = module.line_info.line_to_address(filename, line)
+            if dwarf_relative_addr is not None:
+                # Convert DWARF-relative to absolute address
+                # DWARF addresses are section-relative, so add both base and section offset
+                absolute_addr = module.base_address + module.code_section_offset + dwarf_relative_addr
                 return (absolute_addr, module)
 
         return None
