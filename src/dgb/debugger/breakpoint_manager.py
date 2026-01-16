@@ -59,42 +59,46 @@ class BreakpointManager:
             print(f"Breakpoint already exists at 0x{address:08x}")
             return self.breakpoints[address]
 
-        try:
-            # Read original byte
-            original_byte = self.process_controller.read_memory(address, 1)
+        # Read original byte
+        original_byte = self.process_controller.read_memory(address, 1)
 
-            # Write INT 3 (0xCC)
-            self.process_controller.write_memory(address, b'\xCC')
+        # Write INT 3 (0xCC)
+        self.process_controller.write_memory(address, b'\xCC')
 
-            # Resolve source location
-            result = self.module_manager.resolve_address_to_line(address)
-            if result:
-                module_name, loc, module = result
-                file = loc.file
-                line = loc.line
-            else:
-                module_name = None
-                file = None
-                line = None
-
-            # Create breakpoint
-            bp = Breakpoint(
-                id=self.next_id,
-                address=address,
-                original_byte=original_byte,
-                enabled=True,
-                file=file,
-                line=line,
-                module_name=module_name
+        # Verify INT 3 was written
+        verify_byte = self.process_controller.read_memory(address, 1)
+        if verify_byte != b'\xCC':
+            raise RuntimeError(
+                f"Breakpoint verification failed at 0x{address:08x}: "
+                f"wrote 0xCC but read back {verify_byte.hex()}"
             )
 
-            self.breakpoints[address] = bp
-            self.next_id += 1
+        # Resolve source location
+        result = self.module_manager.resolve_address_to_line(address)
+        if result:
+            module_name, loc, module = result
+            file = loc.file
+            line = loc.line
+        else:
+            module_name = None
+            file = None
+            line = None
 
-            return bp
-        except Exception as e:
-            print(f"Failed to set breakpoint at 0x{address:08x}: {e}")
-            return None
+        # Create breakpoint
+        bp = Breakpoint(
+            id=self.next_id,
+            address=address,
+            original_byte=original_byte,
+            enabled=True,
+            file=file,
+            line=line,
+            module_name=module_name
+        )
+
+        self.breakpoints[address] = bp
+        self.next_id += 1
+
+        return bp
 
     def set_breakpoint_at_line(self, filename: str, line: int) -> Optional[Breakpoint]:
         """Set a breakpoint at a source file line.
@@ -159,17 +163,13 @@ class BreakpointManager:
 
         bp = self.breakpoints[address]
 
-        try:
-            # Restore original byte
-            if bp.enabled:
-                self.process_controller.write_memory(address, bp.original_byte)
+        # Restore original byte
+        if bp.enabled:
+            self.process_controller.write_memory(address, bp.original_byte)
 
-            # Remove from tracking
-            del self.breakpoints[address]
-            return True
-        except Exception as e:
-            print(f"Failed to remove breakpoint at 0x{address:08x}: {e}")
-            return False
+        # Remove from tracking
+        del self.breakpoints[address]
+        return True
 
     def on_breakpoint_hit(self, address: int, thread_id: int) -> Optional[Breakpoint]:
         """Handle a breakpoint hit.
@@ -187,35 +187,31 @@ class BreakpointManager:
         bp = self.breakpoints[address]
         bp.hit_count += 1
 
+        # Restore original instruction
+        self.process_controller.write_memory(address, bp.original_byte)
+
+        # Rewind instruction pointer so we can re-execute the original instruction
+        # Get current IP register name (Eip for 32-bit, Rip for 64-bit)
         try:
-            # Restore original instruction
-            self.process_controller.write_memory(address, bp.original_byte)
-
-            # Rewind instruction pointer so we can re-execute the original instruction
-            # Get current IP register name (Eip for 32-bit, Rip for 64-bit)
+            # Try 32-bit first
+            current_ip = self.process_controller.get_register(thread_id, 'Eip')
+            self.process_controller.set_register(thread_id, 'Eip', address)
+        except Exception:
+            # Try 64-bit
             try:
-                # Try 32-bit first
-                current_ip = self.process_controller.get_register(thread_id, 'Eip')
-                self.process_controller.set_register(thread_id, 'Eip', address)
-            except Exception:
-                # Try 64-bit
-                try:
-                    current_ip = self.process_controller.get_register(thread_id, 'Rip')
-                    self.process_controller.set_register(thread_id, 'Rip', address)
-                except Exception as e:
-                    print(f"Failed to rewind instruction pointer: {e}")
+                current_ip = self.process_controller.get_register(thread_id, 'Rip')
+                self.process_controller.set_register(thread_id, 'Rip', address)
+            except Exception as e:
+                print(f"Failed to rewind instruction pointer: {e}")
 
-            # If temporary breakpoint, remove it
-            if bp.temporary:
-                del self.breakpoints[address]
-            else:
-                # Mark as disabled (will be re-enabled on continue)
-                bp.enabled = False
+        # If temporary breakpoint, remove it
+        if bp.temporary:
+            del self.breakpoints[address]
+        else:
+            # Mark as disabled (will be re-enabled on continue)
+            bp.enabled = False
 
-            return bp
-        except Exception as e:
-            print(f"Error handling breakpoint hit at 0x{address:08x}: {e}")
-            return bp
+        return bp
 
     def re_enable_breakpoint(self, address: int) -> bool:
         """Re-enable a breakpoint after it was hit.
@@ -235,14 +231,10 @@ class BreakpointManager:
         if bp.enabled:
             return True  # Already enabled
 
-        try:
-            # Write INT 3 again
-            self.process_controller.write_memory(address, b'\xCC')
-            bp.enabled = True
-            return True
-        except Exception as e:
-            print(f"Failed to re-enable breakpoint at 0x{address:08x}: {e}")
-            return False
+        # Write INT 3 again
+        self.process_controller.write_memory(address, b'\xCC')
+        bp.enabled = True
+        return True
 
     def get_breakpoint_at_address(self, address: int) -> Optional[Breakpoint]:
         """Get breakpoint at an address.

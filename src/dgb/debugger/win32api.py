@@ -36,6 +36,8 @@ DBG_EXCEPTION_NOT_HANDLED = 0x80010001
 # Exception codes
 EXCEPTION_BREAKPOINT = 0x80000003
 EXCEPTION_SINGLE_STEP = 0x80000004
+STATUS_WX86_SINGLE_STEP = 0x4000001e  # WOW64 single-step exception (32-bit app on 64-bit Windows)
+STATUS_WX86_BREAKPOINT = 0x4000001f  # WOW64 breakpoint exception (32-bit app on 64-bit Windows)
 EXCEPTION_ACCESS_VIOLATION = 0xC0000005
 
 # Context flags
@@ -51,6 +53,7 @@ CONTEXT_ALL = CONTEXT_FULL | CONTEXT_FLOATING_POINT | CONTEXT_DEBUG_REGISTERS | 
 
 # Memory protection
 PAGE_EXECUTE_READWRITE = 0x40
+PAGE_EXECUTE_READ = 0x20
 MEM_COMMIT = 0x1000
 MEM_RESERVE = 0x2000
 
@@ -271,6 +274,12 @@ kernel32.WriteProcessMemory.argtypes = [
 ]
 kernel32.WriteProcessMemory.restype = wintypes.BOOL
 
+kernel32.VirtualProtectEx.argtypes = [
+    wintypes.HANDLE, wintypes.LPVOID, ctypes.c_size_t, wintypes.DWORD,
+    ctypes.POINTER(wintypes.DWORD)
+]
+kernel32.VirtualProtectEx.restype = wintypes.BOOL
+
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
 kernel32.OpenProcess.restype = wintypes.HANDLE
 
@@ -282,6 +291,13 @@ kernel32.GetThreadContext.restype = wintypes.BOOL
 
 kernel32.SetThreadContext.argtypes = [wintypes.HANDLE, ctypes.POINTER(CONTEXT)]
 kernel32.SetThreadContext.restype = wintypes.BOOL
+
+# WOW64 support - for debugging 32-bit processes from 64-bit debugger
+kernel32.Wow64GetThreadContext.argtypes = [wintypes.HANDLE, ctypes.POINTER(CONTEXT)]
+kernel32.Wow64GetThreadContext.restype = wintypes.BOOL
+
+kernel32.Wow64SetThreadContext.argtypes = [wintypes.HANDLE, ctypes.POINTER(CONTEXT)]
+kernel32.Wow64SetThreadContext.restype = wintypes.BOOL
 
 kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
 kernel32.CloseHandle.restype = wintypes.BOOL
@@ -469,8 +485,35 @@ def write_process_memory(process_handle: int, address: int, data: bytes) -> bool
     return success != 0 and bytes_written.value == len(data)
 
 
+def virtual_protect(process_handle: int, address: int, size: int, new_protect: int) -> tuple[bool, int]:
+    """Change memory protection for a region.
+
+    Args:
+        process_handle: Process handle
+        address: Base address of region
+        size: Size of region in bytes
+        new_protect: New protection flags (e.g., PAGE_EXECUTE_READWRITE)
+
+    Returns:
+        Tuple of (success, old_protect)
+    """
+    old_protect = wintypes.DWORD()
+    success = kernel32.VirtualProtectEx(
+        process_handle,
+        address,
+        size,
+        new_protect,
+        ctypes.byref(old_protect)
+    )
+    return (success != 0, old_protect.value)
+
+
 def get_thread_context(thread_handle: int) -> Optional[CONTEXT]:
     """Get thread context (registers).
+
+    For WOW64 processes (32-bit process on 64-bit Windows), this tries
+    Wow64GetThreadContext first to get the 32-bit context, then falls
+    back to GetThreadContext.
 
     Args:
         thread_handle: Thread handle
@@ -481,7 +524,14 @@ def get_thread_context(thread_handle: int) -> Optional[CONTEXT]:
     context = CONTEXT()
     context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
 
-    success = kernel32.GetThreadContext(thread_handle, ctypes.byref(context))
+    # Try Wow64GetThreadContext first (for 32-bit processes on 64-bit Windows)
+    success = kernel32.Wow64GetThreadContext(thread_handle, ctypes.byref(context))
+
+    # If that fails, try regular GetThreadContext
+    if not success:
+        context = CONTEXT()
+        context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+        success = kernel32.GetThreadContext(thread_handle, ctypes.byref(context))
 
     if success:
         return context
@@ -491,6 +541,8 @@ def get_thread_context(thread_handle: int) -> Optional[CONTEXT]:
 def set_thread_context(thread_handle: int, context: CONTEXT) -> bool:
     """Set thread context (registers).
 
+    For WOW64 processes, tries Wow64SetThreadContext first.
+
     Args:
         thread_handle: Thread handle
         context: CONTEXT structure
@@ -498,6 +550,12 @@ def set_thread_context(thread_handle: int, context: CONTEXT) -> bool:
     Returns:
         True if successful
     """
+    # Try Wow64SetThreadContext first (for 32-bit processes on 64-bit Windows)
+    success = kernel32.Wow64SetThreadContext(thread_handle, ctypes.byref(context))
+    if success:
+        return True
+
+    # Fall back to regular SetThreadContext
     return kernel32.SetThreadContext(thread_handle, ctypes.byref(context)) != 0
 
 
@@ -538,4 +596,34 @@ def get_module_filename(process_handle: int, module_base: int) -> Optional[str]:
 
     if length:
         return buffer.value
+    return None
+
+
+def get_filename_from_handle(file_handle: int) -> Optional[str]:
+    """Get filename from file handle.
+
+    Args:
+        file_handle: File handle
+
+    Returns:
+        Full file path or None
+    """
+    if not file_handle:
+        return None
+
+    # FILE_NAME_NORMALIZED (0) - Normalized path
+    buffer = ctypes.create_unicode_buffer(32768)
+    length = kernel32.GetFinalPathNameByHandleW(
+        file_handle,
+        buffer,
+        32768,
+        0  # FILE_NAME_NORMALIZED
+    )
+
+    if length and length < 32768:
+        path = buffer.value
+        # Remove \\?\ prefix if present
+        if path.startswith('\\\\?\\'):
+            path = path[4:]
+        return path
     return None

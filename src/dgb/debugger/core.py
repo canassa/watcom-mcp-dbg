@@ -46,6 +46,9 @@ class Debugger:
         self.waiting_for_event = False
         self.initial_breakpoint_hit = False  # Track if we've hit the initial system breakpoint
 
+        # Callback for initial breakpoint notification
+        self.initial_breakpoint_callback = None
+
     def start(self):
         """Start the debugger and create the process.
 
@@ -98,10 +101,18 @@ class Debugger:
                 win32api.continue_debug_event(process_id, thread_id, status)
                 pending_continue = None
 
-            # If stopped and not ready to resume, just sleep
+            # If stopped and not ready to resume, call pending continue and exit the event loop
+            # The caller (continue_execution, step_over, etc.) will call run_event_loop() again when ready
             if self.context.is_stopped() and not self.waiting_for_event:
-                time.sleep(0.01)  # Sleep briefly while paused
-                continue
+                # CRITICAL: Must call ContinueDebugEvent before exiting, otherwise the process
+                # remains paused at Win32 API level and subsequent WaitForDebugEvent will hang
+                if pending_continue:
+                    process_id, thread_id, status = pending_continue
+                    print(f"[EventLoop] Calling ContinueDebugEvent before exit (process stopped)", flush=True)
+                    win32api.continue_debug_event(process_id, thread_id, status)
+                    pending_continue = None
+                print(f"[EventLoop] Exiting event loop - process stopped", flush=True)
+                break
 
             iteration_count += 1
 
@@ -220,8 +231,16 @@ class Debugger:
         info = event.u.LoadDll
         base_address = info.lpBaseOfDll
 
-        # Get DLL filename
-        filename = win32api.get_module_filename(self.process_handle, base_address)
+        # Try to get DLL filename from file handle first
+        filename = None
+        if info.hFile:
+            filename = win32api.get_filename_from_handle(info.hFile)
+            # Close the file handle - it's our responsibility per Win32 API docs
+            win32api.close_handle(info.hFile)
+
+        # Fallback to GetModuleFileNameEx if file handle method failed
+        if not filename:
+            filename = win32api.get_module_filename(self.process_handle, base_address)
 
         if filename:
             module_name = Path(filename).name
@@ -250,13 +269,15 @@ class Debugger:
         first_chance = info.dwFirstChance
         thread_id = event.dwThreadId
 
-        # Handle breakpoint exception
-        if exception_code == win32api.EXCEPTION_BREAKPOINT:
+        print(f"[Exception] code=0x{exception_code:08x} at 0x{exception_address:08x}, thread={thread_id}", flush=True)
+
+        # Handle breakpoint exception (both standard and WOW64 variants)
+        if exception_code == win32api.EXCEPTION_BREAKPOINT or exception_code == win32api.STATUS_WX86_BREAKPOINT:
             self._handle_breakpoint(exception_address, thread_id, first_chance)
             return
 
-        # Handle single-step exception
-        if exception_code == win32api.EXCEPTION_SINGLE_STEP:
+        # Handle single-step exception (both standard and WOW64 variants)
+        if exception_code == win32api.EXCEPTION_SINGLE_STEP or exception_code == win32api.STATUS_WX86_SINGLE_STEP:
             self._handle_single_step(exception_address, thread_id)
             return
 
@@ -267,6 +288,8 @@ class Debugger:
             self.continue_status = win32api.DBG_EXCEPTION_NOT_HANDLED
         else:
             # Second chance - debugger must handle it
+            self.context.current_thread_id = thread_id  # Update current thread
+            self.context.current_address = exception_address  # Update current address
             self.context.set_stopped(StopInfo(
                 reason="exception",
                 address=exception_address,
@@ -296,6 +319,15 @@ class Debugger:
                 print(f"  Module: {bp.module_name}")
 
             self.last_breakpoint_address = address
+            self.context.current_thread_id = thread_id  # Update current thread
+            self.context.current_address = address  # Update current address
+
+            # Set trap flag to single-step after executing original instruction
+            # This ensures we get a single-step exception to re-enable the breakpoint
+            flags = self.process_controller.get_register(thread_id, 'EFlags')
+            flags |= 0x100  # Set TF (Trap Flag)
+            self.process_controller.set_register(thread_id, 'EFlags', flags)
+
             self.context.set_stopped(StopInfo(
                 reason="breakpoint",
                 address=address,
@@ -309,17 +341,27 @@ class Debugger:
                 # Stop here so the user can inspect the process at entry
                 print(f"\nInitial breakpoint at 0x{address:08x} (entry point)")
                 self.initial_breakpoint_hit = True
+                self.context.current_thread_id = thread_id  # Update current thread
+                self.context.current_address = address  # Update current address
                 self.context.set_stopped(StopInfo(
                     reason="entry",
                     address=address,
                     thread_id=thread_id
                 ))
+
+                # Call callback if registered (for MCP server synchronization)
+                if self.initial_breakpoint_callback:
+                    print(f"[_handle_breakpoint] Signaling initial breakpoint callback", flush=True)
+                    self.initial_breakpoint_callback()
+                    self.initial_breakpoint_callback = None  # Call only once
             elif first_chance:
                 # Subsequent system breakpoints - just continue
                 self.continue_status = win32api.DBG_CONTINUE
             else:
                 # Second-chance breakpoint we don't own - stop and report
                 print(f"Unknown breakpoint at 0x{address:08x}")
+                self.context.current_thread_id = thread_id  # Update current thread
+                self.context.current_address = address  # Update current address
                 self.context.set_stopped(StopInfo(
                     reason="breakpoint",
                     address=address,
@@ -337,14 +379,48 @@ class Debugger:
 
         # If we just stepped over a breakpoint, re-enable it
         if self.last_breakpoint_address and self.breakpoint_manager:
+            print(f"Re-enabling breakpoint at 0x{self.last_breakpoint_address:08x}")
             self.breakpoint_manager.re_enable_breakpoint(self.last_breakpoint_address)
             self.last_breakpoint_address = None
 
-        self.context.set_stopped(StopInfo(
-            reason="step",
-            address=address,
-            thread_id=thread_id
-        ))
+            # Clear trap flag after re-enabling breakpoint
+            flags = self.process_controller.get_register(thread_id, 'EFlags')
+            flags &= ~0x100  # Clear TF
+            self.process_controller.set_register(thread_id, 'EFlags', flags)
+
+            # CRITICAL: Don't stop here - we're just re-enabling the breakpoint
+            # The process should continue running after this
+            self.context.current_thread_id = thread_id
+            self.context.current_address = address
+            # Do NOT call set_stopped() - let the process continue
+            return
+
+        # Check if this is a user-requested step
+        if self.context.step_mode:
+            # This is a user-requested step - stop here
+            self.context.current_thread_id = thread_id  # Update current thread
+            self.context.current_address = address  # Update current address
+            self.context.set_stopped(StopInfo(
+                reason="step",
+                address=address,
+                thread_id=thread_id
+            ))
+            return
+
+        # This is an unexpected single-step (likely spurious WOW64 exception)
+        # These can occur during DLL loading, thread creation, etc. on 64-bit Windows
+        # CRITICAL: Must clear Trap Flag, otherwise every subsequent instruction
+        # will generate single-step exceptions, preventing breakpoints from working!
+        print(f"Ignoring spurious single-step exception at 0x{address:08x}")
+        flags = self.process_controller.get_register(thread_id, 'EFlags')
+        if flags & 0x100:  # Check if TF is set
+            print(f"Clearing Trap Flag (was set)")
+            flags &= ~0x100  # Clear TF
+            self.process_controller.set_register(thread_id, 'EFlags', flags)
+
+        self.context.current_thread_id = thread_id
+        self.context.current_address = address
+        # Do NOT call set_stopped() - let the process continue
 
     def _on_exit_process(self, event):
         """Handle EXIT_PROCESS_DEBUG_EVENT.
@@ -363,11 +439,8 @@ class Debugger:
             print("Process not stopped")
             return
 
-        # Re-enable the last breakpoint we hit (after stepping over it)
-        if self.last_breakpoint_address and self.breakpoint_manager:
-            # Set trap flag to single-step, then re-enable breakpoint
-            # For now, just clear the flag
-            self.last_breakpoint_address = None
+        # Trap flag and breakpoint re-enablement are now handled
+        # automatically by the event loop (_handle_single_step)
 
         self.context.set_running()
         self.run_event_loop()

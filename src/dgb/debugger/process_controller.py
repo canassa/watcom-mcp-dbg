@@ -84,22 +84,47 @@ class ProcessController:
 
         return data
 
-    def write_memory(self, address: int, data: bytes):
+    def write_memory(self, address: int, data: bytes, protect_memory: bool = True):
         """Write memory to the process.
 
         Args:
             address: Memory address to write to
             data: Bytes to write
+            protect_memory: If True, temporarily changes page protections (needed for code)
 
         Raises:
-            RuntimeError: If write fails or no process attached
+            RuntimeError: If write fails, protection change fails, or no process attached
         """
         if not self.process_handle:
             raise RuntimeError("No process attached")
 
-        success = win32api.write_process_memory(self.process_handle, address, data)
-        if not success:
-            raise RuntimeError(f"Failed to write memory at 0x{address:x}")
+        old_protect = None
+
+        if protect_memory:
+            # Change protection to allow writing
+            success, old_protect = win32api.virtual_protect(
+                self.process_handle,
+                address,
+                len(data),
+                win32api.PAGE_EXECUTE_READWRITE
+            )
+            if not success:
+                raise RuntimeError(f"Failed to change memory protection at 0x{address:x}")
+
+        try:
+            # Write the data
+            success = win32api.write_process_memory(self.process_handle, address, data)
+            if not success:
+                raise RuntimeError(f"Failed to write memory at 0x{address:x}")
+        finally:
+            # Restore original protection
+            if old_protect is not None:
+                win32api.virtual_protect(
+                    self.process_handle,
+                    address,
+                    len(data),
+                    old_protect
+                )
 
     def get_register(self, thread_id: int, register_name: str) -> int:
         """Get a register value.
@@ -176,6 +201,8 @@ class ProcessController:
     def get_all_registers(self, thread_id: int) -> dict:
         """Get all register values for a thread.
 
+        Thread must be suspended at a debug event for reliable access.
+
         Args:
             thread_id: Thread ID
 
@@ -183,15 +210,21 @@ class ProcessController:
             Dictionary of register names to values
 
         Raises:
-            RuntimeError: If thread not found
+            RuntimeError: If thread not found or context unavailable
         """
         thread_handle = self.get_thread_handle(thread_id)
         if not thread_handle:
-            raise RuntimeError(f"Thread {thread_id} not found")
+            raise RuntimeError(
+                f"Thread {thread_id} not found or handle unavailable. "
+                f"Process may not be stopped at a debug event."
+            )
 
         context = win32api.get_thread_context(thread_handle)
         if not context:
-            raise RuntimeError(f"Failed to get context for thread {thread_id}")
+            raise RuntimeError(
+                f"Failed to get context for thread {thread_id}. "
+                f"Thread must be suspended at debug event."
+            )
 
         # Extract all general-purpose registers
         return {

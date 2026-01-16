@@ -68,36 +68,34 @@ class ModuleManager:
         Args:
             module: Module to load debug info for
         """
+        if not module.path:
+            print(f"[Module] {module.name}: No file path available")
+            return
+
         if not Path(module.path).exists():
             print(f"[Module] {module.name}: File not found at {module.path}")
             return
 
-        try:
-            parser = WatcomDwarfParser(module.path)
-            dwarf_info = parser.extract_dwarf_info()
+        parser = WatcomDwarfParser(module.path)
+        dwarf_info = parser.extract_dwarf_info()
 
-            if dwarf_info:
-                module.has_debug_info = True
-                module.parser = parser
+        if dwarf_info:
+            module.has_debug_info = True
+            module.parser = parser
 
-                # Build line info
-                try:
-                    line_info = LineInfo(dwarf_info)
-                    module.line_info = line_info
-                    print(f"[Module] {module.name}: DWARF 2 debug info loaded ({parser.get_format_type()})")
+            # Build line info
+            line_info = LineInfo(dwarf_info)
+            module.line_info = line_info
+            print(f"[Module] {module.name}: DWARF 2 debug info loaded ({parser.get_format_type()})")
 
-                    # Show source files
-                    files = line_info.get_files()
-                    if files:
-                        print(f"[Module] {module.name}: {len(files)} source files")
-                        for file in sorted(files):
-                            print(f"         - {Path(file).name}")
-                except Exception as e:
-                    print(f"[Module] {module.name}: Failed to build line info - {e}")
-            else:
-                print(f"[Module] {module.name}: No debug info")
-        except Exception as e:
-            print(f"[Module] {module.name}: Error loading debug info - {e}")
+            # Show source files
+            files = line_info.get_files()
+            if files:
+                print(f"[Module] {module.name}: {len(files)} source files")
+                for file in sorted(files):
+                    print(f"         - {Path(file).name}")
+        else:
+            print(f"[Module] {module.name}: No debug info")
 
     def address_to_module(self, address: int) -> Optional[Module]:
         """Find which module owns an address.

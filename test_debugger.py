@@ -28,9 +28,7 @@ def test_debugger():
 
         # Start process
         print("\n1. Starting process...")
-        if not debugger.start():
-            print("Failed to start")
-            return False
+        debugger.start()
         print("   [OK] Process started successfully")
 
         # Run until first event

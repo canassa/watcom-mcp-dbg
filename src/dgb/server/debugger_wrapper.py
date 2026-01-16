@@ -66,28 +66,61 @@ class DebuggerWrapper:
     def start_in_background(self) -> CommandResult:
         """Start the debugger and begin event loop in background thread.
 
+        CRITICAL FIX: Moves debugger.start() into the background thread to satisfy
+        Windows Debug API requirement that CreateProcess and WaitForDebugEvent
+        must be called by the same thread.
+
         Returns:
             CommandResult with success status
         """
         if self.running:
             return CommandResult(success=False, error="Already running")
 
-        # Start the debugger process
-        if not self.debugger.start():
-            return CommandResult(success=False, error="Failed to start debugger")
+        # CRITICAL FIX: Use event for startup synchronization
+        import threading
+        startup_complete = threading.Event()
+        startup_result = {'success': False, 'error': None, 'data': None}
 
-        # Start background thread for event loop
+        def startup_wrapper():
+            """Wrapper that starts the process on the background thread."""
+            try:
+                # CRITICAL: Start the debugger process ON THIS THREAD
+                from dgb.debugger.exceptions import (
+                    ProcessCreationError, InvalidHandleError, DebuggerError
+                )
+                self.debugger.start()
+                startup_result['success'] = True
+                startup_result['data'] = {
+                    'process_id': self.debugger.context.process_id,
+                    'state': self.debugger.context.state.value
+                }
+            except (ProcessCreationError, InvalidHandleError, DebuggerError) as e:
+                startup_result['error'] = f'{type(e).__name__}: {e}'
+            except Exception as e:
+                startup_result['error'] = f'Unexpected error: {e}'
+            finally:
+                startup_complete.set()
+
+            # If startup succeeded, continue with event loop worker
+            if startup_result['success']:
+                self._event_loop_worker()
+
+        # Start background thread (it will call start() internally)
         self.running = True
-        self.thread = threading.Thread(target=self._event_loop_worker, daemon=True)
+        self.thread = threading.Thread(target=startup_wrapper, daemon=True)
         self.thread.start()
 
-        return CommandResult(
-            success=True,
-            data={
-                'process_id': self.debugger.context.process_id,
-                'state': self.debugger.context.state.value
-            }
-        )
+        # Wait for startup to complete
+        if not startup_complete.wait(timeout=5.0):
+            self.running = False
+            return CommandResult(success=False, error="Timeout waiting for process creation")
+
+        # Check startup result
+        if not startup_result['success']:
+            self.running = False
+            return CommandResult(success=False, error=startup_result['error'])
+
+        return CommandResult(success=True, data=startup_result['data'])
 
     def _event_loop_worker(self):
         """Background thread worker that runs the debugger event loop.

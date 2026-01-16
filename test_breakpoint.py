@@ -28,9 +28,7 @@ def test_breakpoint_at_address():
 
         # Start process
         print("\n1. Starting process...")
-        if not debugger.start():
-            print("Failed to start")
-            return False
+        debugger.start()
         print("   Process started")
 
         # Run until first event (system breakpoint)
