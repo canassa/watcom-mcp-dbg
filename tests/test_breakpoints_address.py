@@ -27,8 +27,8 @@ def test_set_breakpoint_at_address(debug_session, mcp_client):
     # Get current EIP as a valid address
     regs = mcp_client.call_tool("debugger_get_registers", {"session_id": session_id})
     text = extract_text_from_result(regs)
-    match = re.search(r"EIP:\s*(0x[0-9a-fA-F]+)", text)
-    assert match, "Could not find EIP"
+    match = re.search(r"EIP\s*=\s*(0x[0-9a-fA-F]+)", text)
+    assert match, f"Could not find EIP in: {text}"
     address = match.group(1)
 
     # Set breakpoint at that address
@@ -53,7 +53,7 @@ def test_list_breakpoints_after_set(debug_session, mcp_client):
     # Get current EIP
     regs = mcp_client.call_tool("debugger_get_registers", {"session_id": session_id})
     text = extract_text_from_result(regs)
-    match = re.search(r"EIP:\s*(0x[0-9a-fA-F]+)", text)
+    match = re.search(r"EIP\s*=\s*(0x[0-9a-fA-F]+)", text)
     assert match
     address = match.group(1)
 
@@ -100,7 +100,7 @@ def test_breakpoint_hit_at_address(debug_session, mcp_client):
     # Get current EIP
     regs = mcp_client.call_tool("debugger_get_registers", {"session_id": session_id})
     text = extract_text_from_result(regs)
-    match = re.search(r"EIP:\s*(0x[0-9a-fA-F]+)", text)
+    match = re.search(r"EIP\s*=\s*(0x[0-9a-fA-F]+)", text)
     assert match
     eip_before = match.group(1)
 
@@ -111,7 +111,7 @@ def test_breakpoint_hit_at_address(debug_session, mcp_client):
     # Get new EIP
     regs2 = mcp_client.call_tool("debugger_get_registers", {"session_id": session_id})
     text2 = extract_text_from_result(regs2)
-    match2 = re.search(r"EIP:\s*(0x[0-9a-fA-F]+)", text2)
+    match2 = re.search(r"EIP\s*=\s*(0x[0-9a-fA-F]+)", text2)
     assert match2
     breakpoint_address = match2.group(1)
 

@@ -68,7 +68,7 @@ def test_single_step(debug_session, mcp_client):
     text1 = extract_text_from_result(regs1)
 
     # Extract EIP value from first register read
-    match1 = re.search(r"EIP:\s*0x([0-9a-fA-F]+)", text1)
+    match1 = re.search(r"EIP\s*=\s*0x([0-9a-fA-F]+)", text1)
     assert match1, "Could not find EIP in register output"
     eip1 = match1.group(1)
 
@@ -80,7 +80,7 @@ def test_single_step(debug_session, mcp_client):
     text2 = extract_text_from_result(regs2)
 
     # Extract EIP value from second register read
-    match2 = re.search(r"EIP:\s*0x([0-9a-fA-F]+)", text2)
+    match2 = re.search(r"EIP\s*=\s*0x([0-9a-fA-F]+)", text2)
     assert match2, "Could not find EIP after step"
     eip2 = match2.group(1)
 
@@ -123,7 +123,7 @@ def test_step_multiple_times(debug_session, mcp_client):
         # Get EIP
         regs = mcp_client.call_tool("debugger_get_registers", {"session_id": session_id})
         text = extract_text_from_result(regs)
-        match = re.search(r"EIP:\s*0x([0-9a-fA-F]+)", text)
+        match = re.search(r"EIP\s*=\s*0x([0-9a-fA-F]+)", text)
         if match:
             eip_values.append(match.group(1))
 

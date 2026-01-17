@@ -54,7 +54,7 @@ def test_registers_change_after_step(debug_session, mcp_client):
     text1 = extract_text_from_result(result1)
 
     # Extract EIP
-    match1 = re.search(r"EIP:\s*0x([0-9a-fA-F]+)", text1)
+    match1 = re.search(r"EIP\s*=\s*0x([0-9a-fA-F]+)", text1)
     assert match1, "Could not find EIP in register output"
     eip1 = match1.group(1)
 
@@ -68,7 +68,7 @@ def test_registers_change_after_step(debug_session, mcp_client):
     text2 = extract_text_from_result(result2)
 
     # Extract EIP again
-    match2 = re.search(r"EIP:\s*0x([0-9a-fA-F]+)", text2)
+    match2 = re.search(r"EIP\s*=\s*0x([0-9a-fA-F]+)", text2)
     assert match2, "Could not find EIP after step"
     eip2 = match2.group(1)
 
