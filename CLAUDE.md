@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DGB is a **Model Context Protocol (MCP) server** for debugging Windows PE executables with Watcom DWARF 2 debug information. It uses **direct Win32 Debug API calls via ctypes** without external debugging dependencies.
+**WatCom Debugger MCP** is a **Model Context Protocol (MCP) server** for debugging Windows PE executables with Watcom DWARF 2 debug information. It uses **direct Win32 Debug API calls via ctypes** without external debugging dependencies.
 
 Key characteristics:
 - **MCP Protocol Server** - Exposes debugging via HTTP/JSON-RPC 2.0

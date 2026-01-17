@@ -1,7 +1,7 @@
 [project]
-name = "dgb"
+name = "watcom-debugger-mcp"
 version = "0.1.0"
-description = "MCP server for debugging Windows PE with Watcom DWARF 2"
+description = "WatCom Debugger MCP - MCP server for debugging Windows PE executables with Watcom DWARF 2"
 readme = "README.md"
 authors = [
     { name = "Cesar Canassa", email = "cesar@canassa.com" }
