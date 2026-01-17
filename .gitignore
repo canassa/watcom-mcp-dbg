@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+*.log
+tests/pytest.log
+
+# Test temporary files (exclude compiled binaries - those are committed)
+tests/__pycache__/
+__wcl_*.lnk
