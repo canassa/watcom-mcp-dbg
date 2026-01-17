@@ -168,19 +168,20 @@ class MCPHandler:
             text_lines.append(f"Status: {tool_result['status']}")
 
         elif params.name == "debugger_run" or params.name == "debugger_continue" or params.name == "debugger_step":
-            stop_info = tool_result.get('stop_info', {})
-            if stop_info.get('stopped'):
-                reason = stop_info.get('reason', 'unknown')
-                address = stop_info.get('address')
-                text_lines.append(f"✓ Stopped: {reason}")
-                if address:
-                    text_lines.append(f"Address: 0x{address:08x}")
+            # Get state from top level (debugger_run returns state, stop_reason, stop_address at top level)
+            state = tool_result.get('state', 'unknown')
+            stop_reason = tool_result.get('stop_reason')
+            stop_address = tool_result.get('stop_address')
 
-                source_loc = stop_info.get('source_location')
-                if source_loc:
-                    text_lines.append(f"Location: {source_loc['file']}:{source_loc['line']}")
+            if state == 'stopped' or stop_reason:
+                # Stopped state
+                reason = stop_reason or 'breakpoint'
+                text_lines.append(f"✓ Stopped: {reason}")
+                if stop_address:
+                    text_lines.append(f"Address: {stop_address}")
             else:
-                text_lines.append(f"✓ State: {stop_info.get('state', 'running')}")
+                # Running or other state
+                text_lines.append(f"✓ State: {state}")
 
         elif params.name == "debugger_set_breakpoint":
             bp_id = tool_result.get('breakpoint_id')
