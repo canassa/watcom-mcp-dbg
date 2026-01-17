@@ -699,6 +699,112 @@ def debugger_close_session(session_manager: SessionManager, args: dict) -> dict:
         return {'success': False, 'error': 'Session not found'}
 
 
+@register_tool(
+    name="debugger_list_variables",
+    description="List local variables and parameters at the current breakpoint",
+    schema={
+        'properties': {
+            'session_id': {
+                'type': 'string',
+                'description': 'Session ID'
+            },
+            'frame': {
+                'type': 'integer',
+                'description': 'Stack frame index (default 0 for current frame)'
+            }
+        },
+        'required': ['session_id']
+    }
+)
+def debugger_list_variables(session_manager: SessionManager, args: dict) -> dict:
+    """List variables at the current execution point."""
+    session_id = args['session_id']
+    frame = args.get('frame', 0)
+
+    session = session_manager.get_session(session_id)
+    if not session:
+        return {'success': False, 'error': 'Session not found'}
+
+    # Check if process is stopped
+    if not session.debugger.context.is_stopped():
+        return {
+            'success': False,
+            'error': f'Cannot inspect variables: process is {session.debugger.context.state.value}. Process must be stopped.'
+        }
+
+    if not session.debugger.context.current_address:
+        return {'success': False, 'error': 'No current address'}
+
+    if not session.debugger.context.current_thread_id:
+        return {'success': False, 'error': 'No current thread'}
+
+    # TODO: Support frame != 0 (stack unwinding)
+    if frame != 0:
+        return {'success': False, 'error': 'Only frame 0 (current frame) is currently supported'}
+
+    # Find module containing current address
+    current_address = session.debugger.context.current_address
+    module = session.debugger.module_manager.address_to_module(current_address)
+
+    if not module:
+        return {'success': False, 'error': 'No module found at current address'}
+
+    if not module.has_debug_info:
+        return {
+            'success': False,
+            'error': f'Module {module.name} has no debug information'
+        }
+
+    # Get or create variable inspector for the module
+    variable_inspector = session.debugger.module_manager.get_variable_inspector(
+        module,
+        session.debugger.process_controller
+    )
+
+    if not variable_inspector:
+        return {'success': False, 'error': 'Failed to create variable inspector'}
+
+    try:
+        # Convert absolute address to module-relative address
+        # DWARF addresses are section-relative, not module-relative
+        relative_address = current_address - module.base_address - module.code_section_offset
+
+        # Get variables at this address
+        variables = variable_inspector.get_variables_at_address(
+            address=relative_address,
+            thread_id=session.debugger.context.current_thread_id,
+            module_base=module.base_address + module.code_section_offset
+        )
+
+        # Format response
+        var_list = []
+        for var in variables:
+            var_dict = {
+                'name': var.name,
+                'type': var.type_name,
+                'value': var.value,
+                'location': var.location,
+            }
+            if var.address:
+                var_dict['address'] = var.address
+            if var.is_parameter:
+                var_dict['is_parameter'] = True
+
+            var_list.append(var_dict)
+
+        return {
+            'success': True,
+            'variables': var_list,
+            'count': len(var_list)
+        }
+
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Failed to inspect variables: {str(e)}'
+        }
+
+
 # Helper Functions
 
 def get_all_tools() -> list[Tool]:

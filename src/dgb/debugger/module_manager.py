@@ -6,10 +6,13 @@ Handles multi-module debugging where different modules may have different debug 
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from dgb.dwarf.parser import WatcomDwarfParser
 from dgb.dwarf.line_info import LineInfo, SourceLocation
+
+if TYPE_CHECKING:
+    from dgb.dwarf.variable_info import VariableInspector
 
 
 @dataclass
@@ -24,6 +27,7 @@ class Module:
     parser: Optional[WatcomDwarfParser] = None  # DWARF parser if debug info exists
     line_info: Optional[LineInfo] = None  # Line info if debug info exists
     code_section_offset: int = 0  # Virtual address offset of code section (e.g., 0x1000 for AUTO section)
+    variable_inspector: Optional['VariableInspector'] = None  # Variable inspector (lazily created)
 
 
 class ModuleManager:
@@ -274,3 +278,27 @@ class ModuleManager:
             if module.line_info:
                 files.update(module.line_info.get_files())
         return files
+
+    def get_variable_inspector(self, module: Module, process_controller) -> Optional['VariableInspector']:
+        """Get or create a variable inspector for a module.
+
+        Lazily creates the variable inspector on first access.
+
+        Args:
+            module: Module to get inspector for
+            process_controller: ProcessController for memory/register access
+
+        Returns:
+            VariableInspector if module has debug info, None otherwise
+        """
+        if not module.has_debug_info or not module.parser:
+            return None
+
+        # Create inspector if it doesn't exist yet
+        if module.variable_inspector is None:
+            from dgb.dwarf.variable_info import VariableInspector
+            dwarf_info = module.parser.dwarf_info
+            if dwarf_info:
+                module.variable_inspector = VariableInspector(dwarf_info, process_controller)
+
+        return module.variable_inspector

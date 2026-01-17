@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Optional, Callable
 MCP_SERVER_PORT = 8765
 MCP_SERVER_URL = f"http://127.0.0.1:{MCP_SERVER_PORT}/mcp/v1"
 TEST_EXECUTABLES = [
+    "variables.exe",
     "simple.exe",
     "loops.exe",
     "functions.exe",

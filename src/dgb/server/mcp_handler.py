@@ -246,6 +246,29 @@ class MCPHandler:
                 marker = ">>>" if line_info.get('is_current') else "   "
                 text_lines.append(f"{marker} {line_info['line_number']:4d} | {line_info['content']}")
 
+        elif params.name == "debugger_list_variables":
+            import json
+            variables = tool_result.get('variables', [])
+            count = tool_result.get('count', 0)
+
+            if count == 0:
+                text_lines.append("No variables in current scope")
+            else:
+                text_lines.append(f"Variables ({count}):")
+                for var in variables:
+                    name = var.get('name', '?')
+                    type_name = var.get('type', '?')
+                    value = var.get('value', '?')
+                    location = var.get('location', '?')
+                    text_lines.append(f"  {name:20s} = {value:30s} ({type_name}, {location})")
+
+                # Include JSON for testing/programmatic access
+                text_lines.append("")
+                text_lines.append("JSON:")
+                text_lines.append("```json")
+                text_lines.append(json.dumps(tool_result, indent=2))
+                text_lines.append("```")
+
         elif params.name == "debugger_close_session":
             text_lines.append(f"✓ {tool_result.get('message', 'Session closed')}")
 

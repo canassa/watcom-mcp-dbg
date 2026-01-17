@@ -1,0 +1,5 @@
+LIBRARY testdll
+EXPORTS
+    DllFunction1 = DllFunction1_
+    DllFunction2 = DllFunction2_
+    DllFunction3 = DllFunction3_
