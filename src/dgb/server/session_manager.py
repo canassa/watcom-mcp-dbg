@@ -47,9 +47,14 @@ class DebuggerSession:
             if self.debugger:
                 self.debugger.stop()
             if self.event_thread and self.event_thread.is_alive():
-                self.event_thread.join(timeout=2.0)
-        except Exception:
-            pass
+                print(f"[Session.cleanup] Waiting for event thread to exit...", flush=True)
+                self.event_thread.join(timeout=5.0)
+                if self.event_thread.is_alive():
+                    print(f"[Session.cleanup] WARNING: Event thread did not exit after 5 seconds!", flush=True)
+                else:
+                    print(f"[Session.cleanup] Event thread exited cleanly", flush=True)
+        except Exception as e:
+            print(f"[Session.cleanup] Error during cleanup: {e}", flush=True)
 
 
 class SessionManager:

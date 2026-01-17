@@ -471,13 +471,27 @@ class Debugger:
 
     def stop(self):
         """Stop the debugger and clean up."""
+        print(f"[Debugger.stop] Stopping debugger, state={self.context.state.value}", flush=True)
+
+        # Signal event loop to quit
         self.context.should_quit = True
-        self.waiting_for_event = False
+
+        # If process is stopped, resume it so event loop can exit
+        if self.context.is_stopped():
+            print(f"[Debugger.stop] Process is stopped, setting to running so event loop can exit", flush=True)
+            self.context.set_running()
+            self.waiting_for_event = True  # Allow event loop to continue
+
+        # Give event loop a moment to notice should_quit and exit naturally
+        import time
+        time.sleep(0.1)
 
         # CRITICAL: Terminate the process if it's still running
         if self.process_handle and not self.context.is_exited():
             print(f"[Debugger.stop] Terminating process (PID={self.context.process_id})", flush=True)
             win32api.terminate_process(self.process_handle)
+            # Wait for EXIT_PROCESS_DEBUG_EVENT
+            time.sleep(0.1)
 
         if self.process_controller:
             self.process_controller.cleanup()
@@ -489,6 +503,8 @@ class Debugger:
         if self.process_handle:
             win32api.close_handle(self.process_handle)
             self.process_handle = None
+
+        print(f"[Debugger.stop] Cleanup complete", flush=True)
 
     def set_breakpoint(self, location: str) -> bool:
         """Set a breakpoint (supports deferred/pending breakpoints).
