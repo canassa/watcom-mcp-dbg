@@ -9,7 +9,7 @@ from typing import Optional, Any
 from pathlib import Path
 
 from dgb.server.session_manager import SessionManager
-from dgb.server.debugger_wrapper import DebuggerWrapper, Command, CommandType
+from dgb.server.debugger_wrapper import DebuggerWrapper, Command, CommandType, CommandResult
 from dgb.server.models import (
     Tool, ToolInputSchema, TextContent, ToolCallResult
 )
@@ -155,12 +155,35 @@ def debugger_run(session_manager: SessionManager, args: dict) -> dict:
                 session.debugger.run_event_loop()
                 # Event loop exited - either stopped, exited, or should quit
                 if session.debugger.context.is_stopped():
-                    # Process stopped at breakpoint - wait for continue command
+                    # Process stopped at breakpoint - wait for continue command or process step commands
                     print(f"[PersistentLoop] Event loop paused at stop, state={session.debugger.context.state.value}", flush=True)
                     # CRITICAL: Wait in a loop while stopped until continue command
-                    # Do NOT call run_event_loop() while stopped or it will process events one at a time!
+                    # Also check command queue for STEP commands
                     import time
                     while session.debugger.context.is_stopped() and not session.debugger.context.is_exited() and not session.debugger.context.should_quit:
+                        # Check if wrapper exists and has commands
+                        wrapper = getattr(session, 'debugger_wrapper', None)
+                        if wrapper and not wrapper.command_queue.empty():
+                            try:
+                                cmd = wrapper.command_queue.get_nowait()
+                                if cmd.type == CommandType.STEP:
+                                    # Execute step
+                                    session.debugger.step_over()
+                                    # Send result back
+                                    stop_info = session.debugger.context.stop_info
+                                    result = CommandResult(
+                                        success=True,
+                                        data={'state': session.debugger.context.state.value}
+                                    )
+                                    wrapper.result_queue.put(result)
+                                else:
+                                    # Unknown command
+                                    wrapper.result_queue.put(CommandResult(
+                                        success=False,
+                                        error=f"Unknown command: {cmd.type}"
+                                    ))
+                            except:
+                                pass  # Queue was empty, continue
                         time.sleep(0.01)
                     # State changed (continued or exited), loop back to check
                 elif session.debugger.context.is_exited():
@@ -317,9 +340,15 @@ def debugger_step(session_manager: SessionManager, args: dict) -> dict:
     # Queue the step command with short timeout since step should be quick
     cmd_result = wrapper.send_command(Command(type=CommandType.STEP), timeout=5.0)
     if cmd_result.success:
+        # Get current state after step
+        stop_info = session.debugger.context.stop_info
+        state = session.debugger.context.state.value
+
         return {
             'success': True,
-            'stop_info': cmd_result.data
+            'state': state,
+            'stop_reason': stop_info.reason if stop_info else None,
+            'stop_address': f"0x{stop_info.address:08x}" if stop_info and stop_info.address else None
         }
     else:
         return {'success': False, 'error': cmd_result.error}
