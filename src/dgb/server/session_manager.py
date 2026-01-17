@@ -42,19 +42,50 @@ class DebuggerSession:
         self.last_accessed = time.time()
 
     def cleanup(self):
-        """Clean up session resources."""
+        """Clean up session resources.
+
+        CRITICAL: We only terminate the process and signal shutdown.
+        We do NOT close handles or wait for threads, as this can cause deadlocks.
+        Handles will be closed when the Python process exits.
+        """
         try:
+            print(f"[Session.cleanup] Starting fast cleanup for session", flush=True)
+
             if self.debugger:
-                self.debugger.stop()
-            if self.event_thread and self.event_thread.is_alive():
-                print(f"[Session.cleanup] Waiting for event thread to exit...", flush=True)
-                self.event_thread.join(timeout=5.0)
-                if self.event_thread.is_alive():
-                    print(f"[Session.cleanup] WARNING: Event thread did not exit after 5 seconds!", flush=True)
-                else:
-                    print(f"[Session.cleanup] Event thread exited cleanly", flush=True)
+                # Signal the event loop to quit FIRST
+                self.debugger.context.should_quit = True
+                print(f"[Session.cleanup] Set should_quit=True", flush=True)
+
+                # Terminate the process to force event loop to exit
+                if self.debugger.process_handle:
+                    try:
+                        print(f"[Session.cleanup] Terminating process (PID={self.debugger.context.process_id})...", flush=True)
+                        from dgb.debugger import win32api
+                        win32api.terminate_process(self.debugger.process_handle)
+                        print(f"[Session.cleanup] Process terminated", flush=True)
+                    except Exception as e:
+                        print(f"[Session.cleanup] Error terminating process: {e}", flush=True)
+
+                # Give the event loop thread a brief moment to exit cleanly
+                # This prevents race conditions with Windows Debug API
+                import time
+                if self.event_thread and self.event_thread.is_alive():
+                    print(f"[Session.cleanup] Waiting 100ms for event thread to exit...", flush=True)
+                    time.sleep(0.1)
+                    if self.event_thread.is_alive():
+                        print(f"[Session.cleanup] Event thread still running after 100ms (will exit on its own)", flush=True)
+                    else:
+                        print(f"[Session.cleanup] Event thread exited cleanly", flush=True)
+
+                # DO NOT close handles or wait longer - let daemon thread clean up
+                # Handles will be cleaned up when Python exits
+
+            print(f"[Session.cleanup] Fast cleanup complete", flush=True)
+
         except Exception as e:
             print(f"[Session.cleanup] Error during cleanup: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
 
 
 class SessionManager:

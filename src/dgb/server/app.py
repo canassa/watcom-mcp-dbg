@@ -4,6 +4,7 @@ Litestar application for MCP server.
 Provides HTTP transport for Model Context Protocol via JSON-RPC 2.0.
 """
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -56,8 +57,9 @@ async def mcp_endpoint(request: Request, data: dict[str, Any]) -> Response[dict]
     # Get handler from app state
     mcp_handler: MCPHandler = request.app.state.mcp_handler
 
-    # Handle the request
-    response_data = mcp_handler.handle_request(data)
+    # CRITICAL: Run the sync handler in a thread pool to avoid blocking the async event loop
+    # This prevents deadlocks when sync operations (like debugger cleanup) take time
+    response_data = await asyncio.to_thread(mcp_handler.handle_request, data)
 
     return Response(
         content=response_data,

@@ -301,6 +301,8 @@ def debugger_continue(session_manager: SessionManager, args: dict) -> dict:
 )
 def debugger_step(session_manager: SessionManager, args: dict) -> dict:
     """Single-step execution."""
+    import time
+
     session_id = args['session_id']
     session = session_manager.get_session(session_id)
     if not session:
@@ -310,16 +312,47 @@ def debugger_step(session_manager: SessionManager, args: dict) -> dict:
     if not session.debugger.context.is_stopped():
         return {'success': False, 'error': 'Process not stopped'}
 
+    if not session.debugger.context.current_thread_id:
+        return {'success': False, 'error': 'No current thread'}
+
     print(f"[debugger_step] Executing step, state={session.debugger.context.state.value}", flush=True)
 
-    # Execute step directly (like continue does)
-    session.debugger.step_over()
+    # Set trap flag to enable single-step (like step_over does)
+    try:
+        flags = session.debugger.process_controller.get_register(
+            session.debugger.context.current_thread_id, 'EFlags'
+        )
+        flags |= 0x100  # Set TF (Trap Flag)
+        session.debugger.process_controller.set_register(
+            session.debugger.context.current_thread_id, 'EFlags', flags
+        )
+    except Exception as e:
+        return {'success': False, 'error': f'Failed to set trap flag: {e}'}
+
+    # Set step mode and running state (like debugger_continue does)
+    session.debugger.context.set_step_mode(True)
+    session.debugger.context.set_running()
+    session.debugger.waiting_for_event = True
+
+    print(f"[debugger_step] State set to running with step mode, waiting for step to complete...", flush=True)
+
+    # Wait for step to complete (process should stop again)
+    timeout = 5.0
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if session.debugger.context.is_stopped():
+            break
+        if session.debugger.context.is_exited():
+            return {'success': False, 'error': 'Process exited during step'}
+        time.sleep(0.01)
+    else:
+        return {'success': False, 'error': 'Timeout waiting for step to complete'}
 
     # Get current state after step
     stop_info = session.debugger.context.stop_info
     state = session.debugger.context.state.value
 
-    print(f"[debugger_step] Step complete, state={state}", flush=True)
+    print(f"[debugger_step] Step complete, state={state}, reason={stop_info.reason if stop_info else None}", flush=True)
 
     return {
         'success': True,

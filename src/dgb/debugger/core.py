@@ -470,38 +470,43 @@ class Debugger:
             print(f"Failed to step: {e}")
 
     def stop(self):
-        """Stop the debugger and clean up."""
-        print(f"[Debugger.stop] Stopping debugger, state={self.context.state.value}", flush=True)
+        """Stop the debugger and clean up resources.
 
-        # Signal event loop to quit
-        self.context.should_quit = True
+        NOTE: This should be called AFTER the event loop thread has exited
+        to avoid closing handles while they're still in use.
+        """
+        print(f"[Debugger.stop] Cleaning up debugger resources, state={self.context.state.value}", flush=True)
 
-        # If process is stopped, resume it so event loop can exit
-        if self.context.is_stopped():
-            print(f"[Debugger.stop] Process is stopped, setting to running so event loop can exit", flush=True)
-            self.context.set_running()
-            self.waiting_for_event = True  # Allow event loop to continue
-
-        # Give event loop a moment to notice should_quit and exit naturally
-        import time
-        time.sleep(0.1)
-
-        # CRITICAL: Terminate the process if it's still running
+        # Terminate the process if it's still running
         if self.process_handle and not self.context.is_exited():
             print(f"[Debugger.stop] Terminating process (PID={self.context.process_id})", flush=True)
-            win32api.terminate_process(self.process_handle)
-            # Wait for EXIT_PROCESS_DEBUG_EVENT
-            time.sleep(0.1)
+            try:
+                win32api.terminate_process(self.process_handle)
+                print(f"[Debugger.stop] Process terminated", flush=True)
+            except Exception as e:
+                print(f"[Debugger.stop] WARNING: Failed to terminate process: {e}", flush=True)
 
+        # Clean up process controller (closes thread handles)
         if self.process_controller:
-            self.process_controller.cleanup()
+            try:
+                self.process_controller.cleanup()
+            except Exception as e:
+                print(f"[Debugger.stop] WARNING: Error in process_controller cleanup: {e}", flush=True)
 
-        # Close handles
+        # Close main thread handle
         if self.main_thread_handle:
-            win32api.close_handle(self.main_thread_handle)
+            try:
+                win32api.close_handle(self.main_thread_handle)
+            except Exception as e:
+                print(f"[Debugger.stop] WARNING: Failed to close thread handle: {e}", flush=True)
             self.main_thread_handle = None
+
+        # Close process handle
         if self.process_handle:
-            win32api.close_handle(self.process_handle)
+            try:
+                win32api.close_handle(self.process_handle)
+            except Exception as e:
+                print(f"[Debugger.stop] WARNING: Failed to close process handle: {e}", flush=True)
             self.process_handle = None
 
         print(f"[Debugger.stop] Cleanup complete", flush=True)
