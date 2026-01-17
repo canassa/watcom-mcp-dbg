@@ -17,7 +17,6 @@ def extract_text_from_result(result):
     return ""
 
 
-@pytest.mark.skip(reason="Failing test - needs investigation")
 @pytest.mark.edge_case
 def test_process_crash(debug_session, mcp_client):
     """Test handling of process crash (access violation)."""
@@ -51,7 +50,7 @@ def test_concurrent_sessions(debug_session):
     assert session1 != session3
 
 
-@pytest.mark.skip(reason="Failing test - needs investigation")
+@pytest.mark.skip(reason="Session ID extraction pattern issue - needs investigation")
 @pytest.mark.edge_case
 def test_rapid_session_creation_and_closure(mcp_client, compiled_test_programs):
     """Test rapidly creating and closing sessions."""
@@ -79,7 +78,7 @@ def test_rapid_session_creation_and_closure(mcp_client, compiled_test_programs):
         time.sleep(0.1)
 
 
-@pytest.mark.skip(reason="Failing test - needs investigation")
+@pytest.mark.skip(reason="Session management edge case - needs investigation")
 @pytest.mark.edge_case
 def test_double_close_session(debug_session, mcp_client):
     """Test closing a session twice."""
@@ -97,7 +96,7 @@ def test_double_close_session(debug_session, mcp_client):
         })
 
 
-@pytest.mark.skip(reason="Failing test - needs investigation")
+@pytest.mark.skip(reason="Session management edge case - needs investigation")
 @pytest.mark.edge_case
 def test_operations_on_closed_session(debug_session, mcp_client):
     """Test that operations on closed session fail gracefully."""

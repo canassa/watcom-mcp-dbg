@@ -148,10 +148,10 @@ def test_breakpoint_hit_at_address(debug_session, mcp_client):
         "session_id": new_session_id
     })
 
-    # NOTE: debugger_continue is non-blocking - it immediately returns "running"
-    # It doesn't wait for the next breakpoint or exit
+    # NOTE: debugger_continue is now blocking - it waits until process stops or exits
+    # Since there's a breakpoint set, it should stop at the breakpoint
     text = extract_text_from_result(result)
-    assert "running" in text.lower() or "continuing" in text.lower()
+    assert "stopped" in text.lower() or "breakpoint" in text.lower()
 
     # Cleanup new session
     mcp_client.call_tool("debugger_close_session", {"session_id": new_session_id})

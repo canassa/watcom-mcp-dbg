@@ -7,6 +7,7 @@ performs the debugger operation, and returns a result dict.
 
 from typing import Optional, Any
 from pathlib import Path
+import time
 
 from dgb.server.session_manager import SessionManager
 from dgb.server.debugger_wrapper import DebuggerWrapper, Command, CommandType, CommandResult
@@ -265,7 +266,7 @@ def debugger_continue(session_manager: SessionManager, args: dict) -> dict:
 
     print(f"[debugger_continue] Resuming execution, state={session.debugger.context.state.value}", flush=True)
 
-    # Simply set the state to running - the persistent event loop will continue
+    # Set state to running - the persistent event loop will continue
     # The breakpoint restoration logic happens automatically:
     # 1. on_breakpoint_hit() already restored original byte and rewound EIP
     # 2. _handle_breakpoint() already set trap flag for single-step
@@ -277,12 +278,38 @@ def debugger_continue(session_manager: SessionManager, args: dict) -> dict:
     # When breakpoint hits, event loop sets this to False and exits (line 141 in core.py)
     session.debugger.waiting_for_event = True
 
-    print(f"[debugger_continue] State changed to running, waiting_for_event={session.debugger.waiting_for_event}", flush=True)
+    print(f"[debugger_continue] State changed to running, waiting for next stop event...", flush=True)
+
+    # Wait for process to stop at next breakpoint or exit
+    timeout = 10.0
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if session.debugger.context.is_stopped():
+            break
+        if session.debugger.context.is_exited():
+            # Process exited
+            return {
+                'success': True,
+                'state': 'exited',
+                'message': 'Process exited during continue'
+            }
+        time.sleep(0.01)
+    else:
+        # Timeout waiting for stop
+        return {'success': False, 'error': 'Timeout waiting for process to stop'}
+
+    # Get current state after continue (should be stopped)
+    stop_info = session.debugger.context.stop_info
+    state = session.debugger.context.state.value
+
+    print(f"[debugger_continue] Continue complete, state={state}, reason={stop_info.reason if stop_info else None}", flush=True)
 
     return {
         'success': True,
-        'state': 'running',
-        'message': 'Process continuing'
+        'state': state,
+        'stop_reason': stop_info.reason if stop_info else None,
+        'stop_address': f"0x{stop_info.address:08x}" if stop_info and stop_info.address else None,
+        'message': f'Stopped: {stop_info.reason}' if stop_info else 'Process stopped'
     }
 
 

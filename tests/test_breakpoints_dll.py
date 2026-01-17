@@ -130,7 +130,6 @@ def test_multiple_dll_breakpoints(debug_session, mcp_client):
     assert "breakpoint" in text.lower()
 
 
-@pytest.mark.skip(reason="Failing test - needs investigation")
 @pytest.mark.breakpoint
 def test_dll_module_appears_after_load(debug_session, mcp_client):
     """Test that DLL module appears in module list after loading."""
