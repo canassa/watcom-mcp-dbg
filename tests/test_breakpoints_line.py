@@ -37,7 +37,6 @@ def test_set_breakpoint_at_line(debug_session, mcp_client):
     assert "breakpoint" in text.lower()
 
 
-@pytest.mark.skip(reason="Breakpoint not being hit in simple.exe - needs investigation")
 @pytest.mark.breakpoint
 def test_breakpoint_hit_at_line(debug_session, mcp_client):
     """Test that line breakpoint is hit during execution."""
