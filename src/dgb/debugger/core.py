@@ -404,6 +404,14 @@ class Debugger:
         # Check if this is a user-requested step
         if self.context.step_mode:
             # This is a user-requested step - stop here
+            # CRITICAL: Clear trap flag to prevent extra single-step after event loop exit
+            flags = self.process_controller.get_register(thread_id, 'EFlags')
+            flags &= ~0x100  # Clear TF
+            self.process_controller.set_register(thread_id, 'EFlags', flags)
+
+            # Clear step mode
+            self.context.set_step_mode(False)
+
             self.context.current_thread_id = thread_id  # Update current thread
             self.context.current_address = address  # Update current address
             self.context.set_stopped(StopInfo(
