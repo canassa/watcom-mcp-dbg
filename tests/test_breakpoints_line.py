@@ -62,7 +62,6 @@ def test_breakpoint_hit_at_line(debug_session, mcp_client):
     assert "stopped" in text.lower() or "breakpoint" in text.lower()
 
 
-@pytest.mark.skip(reason="Breakpoint not being hit in simple.exe - needs investigation")
 @pytest.mark.breakpoint
 def test_breakpoint_in_function(debug_session, mcp_client):
     """Test breakpoint inside a function is hit when function is called."""
