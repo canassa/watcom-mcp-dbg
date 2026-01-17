@@ -1,49 +1,27 @@
-# DGB - MCP Server for Windows PE Debugging with Watcom DWARF 2
+# DGB - DWARF Debugger for Windows (MCP Server)
 
-**Model Context Protocol (MCP) server** for debugging Windows PE executables with Watcom DWARF 2 debug information.
-
-**Zero external debugging dependencies** - Uses direct Win32 Debug API calls via ctypes!
+A **Model Context Protocol (MCP) server** for debugging Windows PE executables with Watcom DWARF 2 debug information. Uses direct Win32 Debug API calls via ctypes with zero external debugging dependencies.
 
 ## Overview
 
-DGB is an MCP server that exposes Windows PE debugging capabilities through the Model Context Protocol. This allows AI assistants and other MCP clients to debug legacy Windows executables with Watcom DWARF 2 debug information.
+DGB enables debugging of legacy Windows executables compiled with Watcom compilers through the Model Context Protocol. This allows AI assistants, IDEs, and other MCP clients to debug retro/legacy Windows applications (such as DOS4GW games ported to Win32) that use Watcom's unique DWARF debug format.
 
 ### Key Features
 
-- **MCP Protocol Support** - HTTP transport with JSON-RPC 2.0
-- **Multi-module debugging** - Debug EXE + DLLs with different debug info
-- **Watcom DWARF 2 parsing** - Handles Watcom's appended ELF format
-- **Session-based architecture** - Multiple concurrent debugging sessions
-- **Source-level debugging** - Breakpoints by file:line, source code display
-- **Direct Win32 Debug API** - No external debugging dependencies
+- **MCP Protocol Server** - HTTP/JSON-RPC 2.0 transport for debugging operations
+- **Multi-Module Debugging** - Debug EXE + DLLs with different debug info (e.g., EXE without debug info, DLL with debug info)
+- **Watcom DWARF 2 Support** - Handles Watcom's appended ELF container format
+- **Session-Based Architecture** - Multiple concurrent debugging sessions
+- **Full Variable Inspection** - View local variables, parameters, pointers, structs, arrays with type information
+- **Source-Level Debugging** - Breakpoints by file:line, source code display with context
+- **Direct Win32 Debug API** - No external debugging dependencies (no WinDbg, no GDB)
 
-### Architecture
+### Target Use Case
 
-```
-┌─────────────────┐
-│  MCP Client     │  (AI Assistant, IDE, etc.)
-│  (HTTP)         │
-└────────┬────────┘
-         │ JSON-RPC 2.0
-         ▼
-┌─────────────────┐
-│  Litestar       │  HTTP Server (async)
-│  Application    │
-└────────┬────────┘
-         │
-┌────────▼────────┐
-│  MCP Handler    │  Protocol implementation
-│                 │
-├─────────────────┤
-│ Session Manager │  Manages debugging sessions
-│                 │
-├─────────────────┤
-│ Debugger Core   │  Win32 Debug API (sync)
-│ (Background     │  • Event loop
-│  Thread)        │  • Breakpoints
-│                 │  • Module tracking
-└─────────────────┘
-```
+Debugging retro Windows games and applications compiled with Watcom tools, such as:
+- DOS4GW games ported to Win32
+- Legacy Windows applications with Watcom debug info
+- Games using middleware DLLs (e.g., Smacker video, Miles Sound System)
 
 ## Installation
 
@@ -52,9 +30,14 @@ DGB is an MCP server that exposes Windows PE debugging capabilities through the 
 git clone https://github.com/yourusername/dgb.git
 cd dgb
 
-# Install dependencies
+# Install with uv
 uv sync
 ```
+
+**Requirements:**
+- Python 3.11+
+- Windows (uses Win32 Debug API)
+- Executables compiled with Watcom DWARF 2 debug info
 
 ## Usage
 
@@ -73,33 +56,41 @@ uv run dgb-server --session-timeout 7200
 # Set log level
 uv run dgb-server --log-level DEBUG
 
-# Enable auto-reload for development (watches for code changes)
+# Enable auto-reload for development
 uv run dgb-server --reload
-
-# Note: You may see duplicate log messages in reload mode - this is normal
-# as the app is initialized once at module load time for Uvicorn's reloader
 ```
 
 ### Available MCP Tools
 
-The server exposes 10 debugging tools via MCP protocol:
+The server exposes 11 debugging tools via MCP protocol:
 
-1. **`debugger_create_session`** - Create a new debugging session
-2. **`debugger_run`** - Start execution from entry point
-3. **`debugger_continue`** - Continue after breakpoint
-4. **`debugger_step`** - Single-step one instruction
-5. **`debugger_set_breakpoint`** - Set breakpoint at location
-6. **`debugger_list_breakpoints`** - List all breakpoints
-7. **`debugger_get_registers`** - Get CPU register values
-8. **`debugger_list_modules`** - List loaded modules
-9. **`debugger_get_source`** - Get source code with context
-10. **`debugger_close_session`** - Close debugging session
+| Tool | Description |
+|------|-------------|
+| `debugger_create_session` | Create a new debugging session for an executable |
+| `debugger_run` | Start execution from entry point |
+| `debugger_continue` | Continue execution after breakpoint |
+| `debugger_step` | Single-step one CPU instruction |
+| `debugger_set_breakpoint` | Set breakpoint at address or file:line |
+| `debugger_list_breakpoints` | List all breakpoints in session |
+| `debugger_get_registers` | Get CPU register values (32-bit x86) |
+| `debugger_list_modules` | List loaded modules (EXE + DLLs) with debug info |
+| `debugger_get_source` | Get source code with line context |
+| `debugger_list_variables` | List local variables and parameters at current location |
+| `debugger_close_session` | Close debugging session and clean up |
 
-## MCP Protocol Examples
+## Quick Start Example
 
-### Create Session
+### 1. Start the Server
+
+```bash
+uv run dgb-server
+```
+
+### 2. Create a Debugging Session
 
 ```json
+POST http://localhost:8000/mcp/v1
+
 {
   "jsonrpc": "2.0",
   "id": 1,
@@ -107,14 +98,14 @@ The server exposes 10 debugging tools via MCP protocol:
   "params": {
     "name": "debugger_create_session",
     "arguments": {
-      "executable_path": "c:\\entomorph\\plague.exe",
-      "source_dirs": ["c:\\entomorph\\src"]
+      "executable_path": "c:\\path\\to\\game.exe",
+      "source_dirs": ["c:\\path\\to\\source"]
     }
   }
 }
 ```
 
-Response:
+**Response:**
 ```json
 {
   "jsonrpc": "2.0",
@@ -129,9 +120,10 @@ Response:
 }
 ```
 
-### Set Breakpoint
+### 3. Set Breakpoint and Run
 
 ```json
+// Set breakpoint
 {
   "jsonrpc": "2.0",
   "id": 2,
@@ -140,21 +132,18 @@ Response:
     "name": "debugger_set_breakpoint",
     "arguments": {
       "session_id": "abc-123-def",
-      "location": "dllmain.cpp:75"
+      "location": "main.c:42"
     }
   }
 }
-```
 
-### Get Registers
-
-```json
+// Start execution
 {
   "jsonrpc": "2.0",
   "id": 3,
   "method": "tools/call",
   "params": {
-    "name": "debugger_get_registers",
+    "name": "debugger_run",
     "arguments": {
       "session_id": "abc-123-def"
     }
@@ -162,77 +151,134 @@ Response:
 }
 ```
 
-Response:
+### 4. Inspect Variables
+
 ```json
 {
   "jsonrpc": "2.0",
-  "id": 3,
-  "result": {
-    "content": [{
-      "type": "text",
-      "text": "Registers:\n  EAX    = 0x00000001\n  EBX    = 0x7efde000\n  ...\n  EIP    = 0x10000441\n  EFlags = 0x00000246"
-    }]
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "debugger_list_variables",
+    "arguments": {
+      "session_id": "abc-123-def"
+    }
   }
 }
 ```
 
-## Debugging Workflow
+**Response:**
+```json
+{
+  "success": true,
+  "variables": [
+    {
+      "name": "player_x",
+      "type": "int",
+      "value": "42",
+      "location": "stack",
+      "address": "0x0019fe10",
+      "is_parameter": false
+    },
+    {
+      "name": "name_ptr",
+      "type": "char*",
+      "value": "0x00401000",
+      "location": "stack",
+      "address": "0x0019fe0c",
+      "is_parameter": true
+    }
+  ],
+  "count": 2
+}
+```
 
-1. **Create Session** - Create a debugging session for your executable
-2. **Set Breakpoints** - Set breakpoints before running or after loading modules
-3. **Run** - Start execution, process will stop at first breakpoint
-4. **Inspect** - Get registers, source code, modules
-5. **Continue/Step** - Continue execution or single-step
-6. **Close** - Clean up session when done
+## Architecture
+
+```
+┌─────────────────────────────────────────────────┐
+│  MCP Client (AI Assistant, IDE, etc.)          │
+└────────────────────┬────────────────────────────┘
+                     │ HTTP/JSON-RPC 2.0
+                     ▼
+┌─────────────────────────────────────────────────┐
+│  Litestar HTTP Server (Async)                  │
+│  ├─ MCP Handler (Protocol Implementation)      │
+│  └─ Session Manager (Multi-session)            │
+└────────────────────┬────────────────────────────┘
+                     │
+        ┌────────────┼────────────┐
+        ▼            ▼            ▼
+   ┌────────┐  ┌────────┐  ┌────────┐
+   │Session │  │Session │  │Session │  (Background Threads)
+   │   1    │  │   2    │  │   3    │
+   └───┬────┘  └───┬────┘  └───┬────┘
+       │           │           │
+       ▼           ▼           ▼
+┌──────────────────────────────────────────────────┐
+│  Debugger Core (Win32 Debug API - Blocking)     │
+│  ├─ Event Loop (WaitForDebugEvent)              │
+│  ├─ Breakpoint Manager (INT 3 breakpoints)      │
+│  ├─ Module Manager (EXE + DLL tracking)         │
+│  ├─ Variable Inspector (DWARF type resolution)  │
+│  └─ Process Controller (Memory/Register access) │
+└──────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────┐
+│  DWARF Parser (Watcom Format Support)           │
+│  ├─ ELF Container Extraction                    │
+│  ├─ DIE Parser (Types, Variables, Subprograms)  │
+│  ├─ Line Info (Address ↔ Source Mapping)        │
+│  └─ Type Resolver (Pointers, Structs, Arrays)   │
+└──────────────────────────────────────────────────┘
+```
 
 ## Technical Details
 
 ### Win32 Debug API
 
-DGB uses the Windows Debug API directly via ctypes:
-- `CreateProcess` with `DEBUG_PROCESS` flag
-- `WaitForDebugEvent` / `ContinueDebugEvent`
-- Debug events: `CREATE_PROCESS`, `LOAD_DLL`, `EXCEPTION`, `EXIT_PROCESS`
-- `ReadProcessMemory` / `WriteProcessMemory`
-- `GetThreadContext` / `SetThreadContext`
+DGB uses Windows Debug API directly via ctypes:
+
+- **Process Control**: `CreateProcess` with `DEBUG_PROCESS` flag
+- **Event Loop**: `WaitForDebugEvent` / `ContinueDebugEvent`
+- **Debug Events**: `CREATE_PROCESS`, `LOAD_DLL`, `EXCEPTION`, `EXIT_PROCESS`
+- **Memory Access**: `ReadProcessMemory` / `WriteProcessMemory`
+- **Register Access**: `GetThreadContext` / `SetThreadContext`
 
 ### Watcom DWARF Format
 
-Watcom compilers append DWARF 2 data as an ELF container at the end of PE files:
+Watcom compilers use a unique format where DWARF 2 data is appended as an ELF container:
 
 1. Parser checks for standard PE debug sections
-2. Scans for ELF magic bytes (0x7F 'E' 'L' 'F') at file end
+2. Scans backward from end of file for ELF magic bytes (0x7F 'E' 'L' 'F')
 3. Extracts the appended ELF container using pyelftools
-4. Handles Watcom's empty file table (file names in CU `DW_AT_name`)
+4. Handles Watcom quirks (empty file table, file names in CU `DW_AT_name`)
 
-### Multi-Module Address Resolution
+### Multi-Module Debugging
 
-- DWARF addresses are relative to module base (0x00000000)
-- Runtime addresses depend on Windows module loading
-- Formula: `absolute_address = module.base_address + relative_address`
-- Module manager tracks all loaded modules (EXE + DLLs)
-- Critical for debugging scenarios where main EXE has no debug info but DLLs do
+Critical for scenarios where the main EXE has no debug info but DLLs do:
+
+- **DWARF addresses** are relative to module base (0x00000000)
+- **Runtime addresses** depend on where Windows loads the module
+- **Formula**: `absolute_address = module.base_address + relative_address`
+- **Module Manager** tracks all loaded modules and resolves addresses across boundaries
+
+### Variable Inspection
+
+Full variable inspection with DWARF type resolution:
+
+- **Supported Types**: Base types (int, char, float, etc.), pointers, arrays, structs, typedefs
+- **Location Evaluation**: Stack (DW_OP_fbreg), registers (DW_OP_reg*), globals (DW_OP_addr)
+- **Value Formatting**: Type-aware formatting (signed/unsigned integers, floats, hex pointers)
+- **Parameters**: Distinguishes function parameters from local variables
 
 ### Threading Model
 
-- **Litestar (Main Thread)** - Async HTTP server handling MCP requests
-- **Event Loop Thread (Per Session)** - Win32 Debug API is blocking, runs in dedicated background thread
-- **Communication** - Thread-safe queues for commands and results
-- **Synchronization** - Locks protect shared debugger state
-
-## Dependencies
-
-```toml
-dependencies = [
-    "pyelftools>=0.30",    # DWARF parsing only
-    "pefile>=2023.2.7",    # PE file parsing only
-    "litestar>=2.11.0",    # Async web framework
-    "uvicorn>=0.30.0",     # ASGI server
-    "pydantic>=2.0",       # Data validation
-]
-```
-
-**No external debugging libraries!** All Win32 Debug API access is direct via ctypes.
+- **Main Thread**: Litestar async HTTP server handling MCP requests
+- **Event Loop Threads**: One per session, running Win32 Debug API (blocking)
+- **Communication**: Thread-safe queues for commands and results
+- **Synchronization**: Locks protect shared debugger state
 
 ## Project Structure
 
@@ -241,95 +287,126 @@ dgb/
 ├── src/dgb/
 │   ├── server/
 │   │   ├── main.py              # Server entry point
-│   │   ├── app.py               # Litestar application
-│   │   ├── mcp_handler.py       # MCP protocol handler
-│   │   ├── tools.py             # Tool implementations
-│   │   ├── models.py            # Pydantic models
-│   │   ├── session_manager.py   # Session lifecycle
-│   │   ├── debugger_wrapper.py  # Thread-safe wrapper
-│   │   └── source_resolver.py   # Source file handling
+│   │   ├── app.py               # Litestar application setup
+│   │   ├── mcp_handler.py       # MCP protocol implementation
+│   │   ├── tools.py             # Tool implementations (11 tools)
+│   │   ├── session_manager.py   # Session lifecycle management
+│   │   ├── debugger_wrapper.py  # Thread-safe debugger wrapper
+│   │   └── source_resolver.py   # Source file loading
 │   ├── debugger/
-│   │   ├── core.py              # Main debugger, event loop
-│   │   ├── breakpoint_manager.py # Software breakpoints
+│   │   ├── core.py              # Main debugger orchestration
+│   │   ├── breakpoint_manager.py # Software breakpoint handling
 │   │   ├── process_controller.py # Win32 API wrapper
 │   │   ├── module_manager.py    # Multi-module tracking
-│   │   ├── state.py             # State management
-│   │   └── win32api.py          # Win32 Debug API ctypes
+│   │   ├── state.py             # Debugger state management
+│   │   └── win32api.py          # Win32 Debug API ctypes bindings
 │   └── dwarf/
 │       ├── parser.py            # Watcom DWARF extraction
-│       └── line_info.py         # Address/line mapping
-├── test_parser.py               # Test DWARF parser
-├── test_debugger.py             # Test debugger core
-└── test_breakpoint.py           # Test breakpoints
+│       ├── line_info.py         # Address/line bidirectional mapping
+│       ├── die_parser.py        # DWARF DIE parsing (types, subprograms)
+│       ├── type_info.py         # Type resolution and formatting
+│       ├── location_eval.py     # DWARF location expression evaluation
+│       └── variable_info.py     # High-level variable inspection
+├── tests/
+│   ├── conftest.py              # Pytest fixtures (MCP server, sessions)
+│   ├── test_breakpoints_*.py    # Breakpoint tests (address, line, DLL)
+│   ├── test_execution_control.py # Run, continue, step tests
+│   ├── test_variable_inspection.py # Variable inspection tests
+│   ├── test_registers.py        # Register access tests
+│   ├── test_modules.py          # Module listing tests
+│   ├── test_source_display.py   # Source code display tests
+│   └── test_session_management.py # Session lifecycle tests
+├── CLAUDE.md                    # Project instructions for Claude Code
+├── README.md                    # This file
+├── pyproject.toml               # Project configuration
+└── pytest.ini                   # Pytest configuration
 ```
 
 ## Testing
 
-### Test DWARF Parser
+The project has a comprehensive test suite with 74 tests covering all functionality:
 
 ```bash
-# Test parser on a DLL with Watcom debug info
-uv run python test_parser.py c:\entomorph\smackw32.dll
+# Run all tests
+uv run pytest -s
+
+# Run specific test file
+uv run pytest tests/test_variable_inspection.py -s
+
+# Run specific test
+uv run pytest tests/test_breakpoints_line.py::test_breakpoint_in_function -s
+
+# Run with verbose output
+uv run pytest -v -s
 ```
 
-### Test Debugger Core
+**Test Coverage:**
+- ✅ Breakpoints (address, file:line, DLL breakpoints)
+- ✅ Execution control (run, continue, step)
+- ✅ Variable inspection (all types, parameters, locals)
+- ✅ Register access (all x86 registers)
+- ✅ Module tracking (EXE + DLLs)
+- ✅ Source display with context
+- ✅ Session management (create, concurrent, cleanup)
+- ✅ Edge cases (crashes, invalid operations)
 
-```bash
-# Run end-to-end debugger test
-uv run python test_debugger.py
+**All tests must pass before committing.** Run `uv run pytest -s` to verify.
 
-# Test breakpoint functionality
-uv run python test_breakpoint.py
+## Dependencies
+
+```toml
+dependencies = [
+    "pyelftools>=0.30",    # DWARF parsing
+    "pefile>=2023.2.7",    # PE file parsing
+    "litestar>=2.11.0",    # Async web framework (MCP server)
+    "uvicorn>=0.30.0",     # ASGI server
+    "pydantic>=2.0",       # Data validation
+]
+
+[tool.uv.dev-dependencies]
+pytest = ">=7.0"           # Testing framework
+pytest-cov = ">=4.0"       # Coverage reporting
+faker = ">=40.0.0"         # Test data generation
 ```
 
-### Test MCP Server
-
-```bash
-# Start server in one terminal
-uv run dgb-server --log-level DEBUG
-
-# In another terminal, send test requests
-curl -X POST http://localhost:8000/mcp/v1 \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "tools/list",
-    "params": {}
-  }'
-```
+**No external debugging libraries!** All Win32 Debug API access is direct via ctypes.
 
 ## Known Limitations
 
 1. **DWARF 2 only** - No support for DWARF 3/4/5
-2. **No variable inspection** - Can't read local variables yet
-3. **No call stack** - Can't unwind stack frames
-4. **Basic stepping** - Only single-step, no step-over/step-into
-5. **Windows only** - Uses Win32 Debug API
-6. **32-bit focus** - Primarily tested with 32-bit executables
+2. **No call stack unwinding** - Can't unwind stack frames yet (needs frame info parsing)
+3. **Basic stepping** - Only single-step instruction, no step-over/step-into function calls
+4. **Windows only** - Uses Win32 Debug API
+5. **32-bit focus** - Primarily tested with 32-bit executables
+6. **Struct formatting** - Some struct types may show formatting errors (pyelftools issue with DW_AT_data_member_location)
 
 ## Future Enhancements
 
-1. **Variable inspection** - DWARF expression evaluation
-2. **Call stack unwinding** - Frame info parsing
-3. **Enhanced stepping** - Step over/into function calls
-4. **DWARF 3/4/5 support** - Extended format support
+1. **Call stack unwinding** - Parse DWARF frame information for stack traces
+2. **Enhanced stepping** - Step over/into function calls (requires call stack)
+3. **String dereferencing** - Read strings from char* pointers
+4. **DWARF 3/4/5 support** - Extended format support for modern compilers
 5. **64-bit support** - Support for x64 executables
-6. **WebSocket transport** - Real-time debugging updates
+6. **WebSocket transport** - Real-time debugging updates for better UX
 
-## Migration from CLI
+## Use with AI Assistants
 
-**Previous version** was an interactive CLI debugger. This version is a complete rewrite as an MCP server.
+This MCP server is designed to work with AI assistants that support the Model Context Protocol:
 
-**Key changes:**
-- No more interactive CLI - use HTTP API instead
-- Session-based architecture for concurrent debugging
-- Can integrate with AI assistants via MCP
-- Can build custom UIs/clients using HTTP API
+```python
+# Example: AI assistant debugging a legacy game
+"Set a breakpoint in smackw32.dll at SmackOpen function"
+→ Tool: debugger_set_breakpoint(location="smackw32.c:145")
 
-**Core functionality unchanged:**
-- DWARF parsing and Win32 API code unchanged
-- Same debugging capabilities, different interface
+"What are the current register values?"
+→ Tool: debugger_get_registers()
+
+"Show me the local variables"
+→ Tool: debugger_list_variables()
+
+"Continue execution"
+→ Tool: debugger_continue()
+```
 
 ## License
 
@@ -337,6 +414,7 @@ MIT
 
 ## See Also
 
-- [Model Context Protocol](https://modelcontextprotocol.io/) - Protocol specification
-- [Litestar](https://litestar.dev/) - Python ASGI framework
-- [pyelftools](https://github.com/eliben/pyelftools) - DWARF parsing
+- [Model Context Protocol](https://modelcontextprotocol.io/) - MCP specification
+- [Litestar Documentation](https://litestar.dev/) - Python ASGI framework
+- [pyelftools](https://github.com/eliben/pyelftools) - DWARF parsing library
+- [Win32 Debug API](https://learn.microsoft.com/en-us/windows/win32/debug/debugging-functions) - Windows debugging reference
