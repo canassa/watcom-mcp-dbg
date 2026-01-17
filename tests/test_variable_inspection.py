@@ -640,7 +640,14 @@ def test_response_structure(debug_session, mcp_client):
 
     result = mcp_client.call_tool("debugger_list_variables", {"session_id": session_id})
     text = extract_text_from_result(result)
-    data = parse_json_from_text(text)
+
+    # Extract JSON from code block (format: ```json\n{...}\n```)
+    import re
+    json_match = re.search(r'```json\s*\n(.*?)\n```', text, re.DOTALL)
+    assert json_match is not None, f"No JSON code block found in response: {text}"
+
+    json_text = json_match.group(1)
+    data = parse_json_from_text(json_text)
 
     assert data is not None
     assert "success" in data

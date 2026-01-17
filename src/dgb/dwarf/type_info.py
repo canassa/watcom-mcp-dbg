@@ -154,7 +154,7 @@ class TypeResolver:
             byte_size = size_attr.value if size_attr else 4
 
             type_attr = attrs.get('DW_AT_type')
-            pointee_offset = type_attr.value + type_attr.cu_offset if type_attr else None
+            pointee_offset = type_attr.value + die.cu.cu_offset if type_attr else None
 
             return PointerType(pointee_offset=pointee_offset, byte_size=byte_size)
 
@@ -194,7 +194,7 @@ class TypeResolver:
             name = name_attr.value.decode('utf-8', errors='ignore') if name_attr else 'unnamed'
 
             type_attr = attrs.get('DW_AT_type')
-            type_offset = type_attr.value + type_attr.cu_offset if type_attr else None
+            type_offset = type_attr.value + die.cu.cu_offset if type_attr else None
 
             # Member offset can be in DW_AT_data_member_location
             offset_attr = attrs.get('DW_AT_data_member_location')
@@ -214,7 +214,7 @@ class TypeResolver:
             name = name_attr.value.decode('utf-8', errors='ignore') if name_attr else 'unnamed'
 
             type_attr = attrs.get('DW_AT_type')
-            type_offset = type_attr.value + type_attr.cu_offset if type_attr else None
+            type_offset = type_attr.value + die.cu.cu_offset if type_attr else None
 
             return TypedefType(name=name, type_offset=type_offset)
 
@@ -228,7 +228,7 @@ class TypeResolver:
             type_attr = attrs.get('DW_AT_type')
 
             if type_attr:
-                type_offset = type_attr.value + type_attr.cu_offset
+                type_offset = type_attr.value + die.cu.cu_offset
                 return self.resolve_type(type_offset)
 
             return None
@@ -242,7 +242,7 @@ class TypeResolver:
             attrs = die.attributes
 
             type_attr = attrs.get('DW_AT_type')
-            element_type_offset = type_attr.value + type_attr.cu_offset if type_attr else None
+            element_type_offset = type_attr.value + die.cu.cu_offset if type_attr else None
 
             # Array bounds are in subrange DIE
             element_count = None
