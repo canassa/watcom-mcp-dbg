@@ -1,10 +1,10 @@
-# DGB - DWARF Debugger for Windows (MCP Server)
+# WatCom Debugger MCP
 
 A **Model Context Protocol (MCP) server** for debugging Windows PE executables with Watcom DWARF 2 debug information. Uses direct Win32 Debug API calls via ctypes with zero external debugging dependencies.
 
 ## Overview
 
-DGB enables debugging of legacy Windows executables compiled with Watcom compilers through the Model Context Protocol. This allows AI assistants, IDEs, and other MCP clients to debug retro/legacy Windows applications (such as DOS4GW games ported to Win32) that use Watcom's unique DWARF debug format.
+WatCom Debugger MCP enables debugging of legacy Windows executables compiled with Watcom compilers through the Model Context Protocol. This allows AI assistants, IDEs, and other MCP clients to debug retro/legacy Windows applications (such as DOS4GW games ported to Win32) that use Watcom's unique DWARF debug format.
 
 ### Key Features
 
@@ -27,8 +27,8 @@ Debugging retro Windows games and applications compiled with Watcom tools, such 
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/dgb.git
-cd dgb
+git clone https://github.com/yourusername/watcom-debugger-mcp.git
+cd watcom-debugger-mcp
 
 # Install with uv
 uv sync
