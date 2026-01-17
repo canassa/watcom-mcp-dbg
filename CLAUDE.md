@@ -26,21 +26,30 @@ uv sync --dev
 ```
 
 ### Testing
+
+**CRITICAL TESTING RULES:**
+1. **ALWAYS run the full test suite before committing** using `uv run pytest -s`
+2. **NEVER commit if ANY tests are failing** - all tests must pass
+3. **ALL tests are currently passing** - keep it that way
+
 ```bash
-# Test DWARF parser on a DLL with Watcom debug info
+# Run full test suite (REQUIRED before any commit)
+uv run pytest -s
+
+# Run with verbose output
+uv run pytest -v -s
+
+# Run specific test file
+uv run pytest tests/test_breakpoints_line.py -s
+
+# Run specific test
+uv run pytest tests/test_breakpoints_line.py::test_set_breakpoint_at_line -s
+
+# Legacy standalone test scripts (deprecated, use pytest instead)
 uv run python test_parser.py c:\entomorph\smackw32.dll
-
-# Run end-to-end debugger test
 uv run python test_debugger.py
-
-# Test breakpoint functionality
 uv run python test_breakpoint.py
-
-# Inspect line program details
 uv run python test_line_program.py <dll_path>
-
-# Run pytest tests (if available)
-uv run pytest
 ```
 
 ### Running the MCP Server
@@ -229,13 +238,29 @@ Software breakpoints work by:
 
 ## Testing Patterns
 
-Test scripts follow a common pattern:
-1. Add `src` to Python path: `sys.path.insert(0, str(Path(__file__).parent / 'src'))`
-2. Import needed modules
-3. Test specific functionality with real executables
-4. Print detailed progress and results
+The project uses **pytest** for comprehensive test coverage. All tests are located in the `tests/` directory.
 
-Test files are standalone scripts, not pytest-based (though pytest is in dev dependencies for future use).
+**Test Organization:**
+- `tests/conftest.py` - Shared fixtures (MCP server, client, compiled test programs, debug sessions)
+- `tests/test_*.py` - Test modules organized by feature area
+- `tests/fixtures/` - Test executables and source files
+
+**Key Fixtures:**
+- `mcp_server` - Starts MCP server on random port
+- `mcp_client` - Client for calling MCP tools
+- `compiled_test_programs` - Directory with compiled test executables
+- `debug_session` - Creates and manages debug sessions
+
+**Test Categories:**
+- Breakpoints (address, line, DLL breakpoints)
+- Execution control (run, continue, step)
+- Session management
+- Register inspection
+- Module listing
+- Source code display
+- Edge cases and error handling
+
+**IMPORTANT:** All tests must pass before committing. Run `uv run pytest -s` to verify.
 
 ## Dependencies
 

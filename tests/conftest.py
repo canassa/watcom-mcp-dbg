@@ -204,10 +204,11 @@ def mcp_server(compiled_test_programs):
         Kills server and all child processes.
     """
     # Start server using uv run
+    # Use DEVNULL to avoid creating pipe file handles that need cleanup
     server_process = subprocess.Popen(
         ["uv", "run", "dgb-server", "--port", str(MCP_SERVER_PORT), "--log-level", "DEBUG"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         cwd=Path(__file__).parent.parent  # Project root
     )
 
@@ -260,6 +261,10 @@ def mcp_server(compiled_test_programs):
         # Kill parent
         parent.kill()
         parent.wait(timeout=5)
+
+        # Wait for the Popen object to recognize the process is dead
+        # This prevents "subprocess still running" warnings
+        server_process.wait(timeout=2)
     except psutil.NoSuchProcess:
         pass
     except Exception as e:
