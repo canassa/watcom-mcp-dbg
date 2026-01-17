@@ -474,14 +474,21 @@ class Debugger:
         self.context.should_quit = True
         self.waiting_for_event = False
 
+        # CRITICAL: Terminate the process if it's still running
+        if self.process_handle and not self.context.is_exited():
+            print(f"[Debugger.stop] Terminating process (PID={self.context.process_id})", flush=True)
+            win32api.terminate_process(self.process_handle)
+
         if self.process_controller:
             self.process_controller.cleanup()
 
         # Close handles
         if self.main_thread_handle:
             win32api.close_handle(self.main_thread_handle)
+            self.main_thread_handle = None
         if self.process_handle:
             win32api.close_handle(self.process_handle)
+            self.process_handle = None
 
     def set_breakpoint(self, location: str) -> bool:
         """Set a breakpoint (supports deferred/pending breakpoints).

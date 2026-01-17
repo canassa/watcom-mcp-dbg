@@ -627,3 +627,20 @@ def get_filename_from_handle(file_handle: int) -> Optional[str]:
             path = path[4:]
         return path
     return None
+
+
+def terminate_process(process_handle: int, exit_code: int = 1) -> bool:
+    """Terminate a process.
+
+    Args:
+        process_handle: Handle to the process to terminate
+        exit_code: Exit code for the process (default 1)
+
+    Returns:
+        True if successful, False otherwise
+    """
+    if not process_handle:
+        return False
+
+    success = kernel32.TerminateProcess(process_handle, exit_code)
+    return bool(success)
