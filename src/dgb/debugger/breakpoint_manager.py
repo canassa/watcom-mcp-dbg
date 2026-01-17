@@ -398,6 +398,42 @@ class BreakpointManager:
 
         return resolved_breakpoints
 
+    def unpend_breakpoints_for_module(self, module_name: str) -> int:
+        """Move active breakpoints back to pending when a module unloads.
+
+        Args:
+            module_name: Name of the module being unloaded
+
+        Returns:
+            Number of breakpoints moved back to pending
+        """
+        breakpoints_to_unpend = []
+
+        # Find all breakpoints in this module
+        for address, bp in list(self.breakpoints.items()):
+            if bp.module_name and bp.module_name.lower() == module_name.lower():
+                breakpoints_to_unpend.append((address, bp))
+
+        # Move them back to pending
+        count = 0
+        for address, bp in breakpoints_to_unpend:
+            # Remove from active breakpoints
+            del self.breakpoints[address]
+
+            # Reset to pending state
+            bp.address = None
+            bp.original_byte = None
+            bp.status = "pending"
+            bp.enabled = False
+
+            # Add back to pending list
+            self.pending_breakpoints.append(bp)
+            count += 1
+
+            print(f"  - BP {bp.id} ({bp.file}:{bp.line}) moved back to pending")
+
+        return count
+
     def remove_breakpoint(self, breakpoint_id: int) -> bool:
         """Remove a breakpoint by ID (handles both active and pending).
 

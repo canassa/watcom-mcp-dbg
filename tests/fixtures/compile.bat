@@ -67,7 +67,7 @@ REM Compile testdll.dll
 echo [6/7] Compiling testdll.dll...
 wcc386 -d2 -hd -zc -bt=nt -bd src\testdll.c -fo=%OUTDIR%\testdll.obj
 if errorlevel 1 goto error
-wlink debug all option quiet system nt_dll file %OUTDIR%\testdll.obj name %OUTDIR%\testdll.dll
+wlink @src\testdll.lnk file %OUTDIR%\testdll.obj name %OUTDIR%\testdll.dll
 if errorlevel 1 goto error
 del %OUTDIR%\testdll.obj
 

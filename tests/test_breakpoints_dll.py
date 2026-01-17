@@ -5,6 +5,7 @@ Tests deferred breakpoints that resolve when DLLs are loaded.
 """
 
 import pytest
+import re
 from pathlib import Path
 
 
@@ -145,10 +146,10 @@ def test_dll_module_appears_after_load(debug_session, mcp_client):
     })
     text1 = extract_text_from_result(result1)
 
-    # Set breakpoint at testdll_user.c:32 (after DLL is loaded)
+    # Set breakpoint at testdll_user.c:35 (after DLL is loaded, at first DLL call)
     mcp_client.call_tool("debugger_set_breakpoint", {
         "session_id": session_id,
-        "location": "testdll_user.c:32"
+        "location": "testdll_user.c:35"
     })
 
     # Continue to that point
@@ -164,3 +165,79 @@ def test_dll_module_appears_after_load(debug_session, mcp_client):
 
     # testdll.dll should appear in second listing
     assert "testdll.dll" in text2.lower()
+
+
+@pytest.mark.breakpoint
+def test_dll_function_register_args(debug_session, mcp_client):
+    """Test that Watcom register calling convention works correctly in DLL.
+
+    DllFunction3 takes 3 arguments (1, 2, 3) which should be passed in:
+    - EAX = 1 (first argument)
+    - EDX = 2 (second argument)
+    - EBX = 3 (third argument)
+    """
+    source_dir = str(Path(__file__).parent / "fixtures" / "src")
+    session_id = debug_session("testdll_user.exe", source_dirs=[source_dir])
+
+    # Run to entry
+    mcp_client.call_tool("debugger_run", {"session_id": session_id})
+
+    # Set breakpoint inside DllFunction3 at testdll.c:19
+    mcp_client.call_tool("debugger_set_breakpoint", {
+        "session_id": session_id,
+        "location": "testdll.c:19"
+    })
+
+    # Continue multiple times until we hit the breakpoint or exit
+    max_continues = 5
+    for i in range(max_continues):
+        result = mcp_client.call_tool("debugger_continue", {
+            "session_id": session_id
+        })
+        text = extract_text_from_result(result)
+
+        # Check if we hit breakpoint or exited
+        if "stopped" in text.lower() or "breakpoint" in text.lower():
+            break
+        if "exited" in text.lower():
+            pytest.fail(f"Process exited before hitting breakpoint (after {i+1} continues): {text}")
+    else:
+        pytest.fail(f"Did not hit breakpoint after {max_continues} continues")
+
+    # Get source code at breakpoint location
+    source_result = mcp_client.call_tool("debugger_get_source", {
+        "session_id": session_id,
+        "file": "testdll.c",
+        "line": 19,
+        "context_lines": 5
+    })
+    source_text = extract_text_from_result(source_result)
+
+    # Verify source contains the function and the breakpoint line
+    assert "DllFunction3" in source_text, "Source should show DllFunction3 function"
+    assert "int result = x + y + z" in source_text, "Source should show line 19 (breakpoint line)"
+    assert "Line 19" in source_text or "19" in source_text, "Source should indicate line 19"
+
+    # Get registers
+    regs_result = mcp_client.call_tool("debugger_get_registers", {
+        "session_id": session_id
+    })
+    regs_text = extract_text_from_result(regs_result).upper()
+
+    # Extract register values
+    eax_match = re.search(r"EAX\s*=\s*0[Xx]([0-9a-fA-F]+)", regs_text, re.IGNORECASE)
+    edx_match = re.search(r"EDX\s*=\s*0[Xx]([0-9a-fA-F]+)", regs_text, re.IGNORECASE)
+    ebx_match = re.search(r"EBX\s*=\s*0[Xx]([0-9a-fA-F]+)", regs_text, re.IGNORECASE)
+
+    assert eax_match, f"Could not find EAX in register output: {regs_text[:200]}"
+    assert edx_match, "Could not find EDX in register output"
+    assert ebx_match, "Could not find EBX in register output"
+
+    eax_val = int(eax_match.group(1), 16)
+    edx_val = int(edx_match.group(1), 16)
+    ebx_val = int(ebx_match.group(1), 16)
+
+    # Verify Watcom register calling convention: DllFunction3(1, 2, 3) -> EAX=1, EDX=2, EBX=3
+    assert eax_val == 1, f"EAX should be 1, got {eax_val} (0x{eax_match.group(1)})"
+    assert edx_val == 2, f"EDX should be 2, got {edx_val} (0x{edx_match.group(1)})"
+    assert ebx_val == 3, f"EBX should be 3, got {ebx_val} (0x{ebx_match.group(1)})"

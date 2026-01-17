@@ -166,6 +166,8 @@ class Debugger:
             self._on_create_thread(event)
         elif event_code == win32api.LOAD_DLL_DEBUG_EVENT:
             self._on_load_dll(event)
+        elif event_code == win32api.UNLOAD_DLL_DEBUG_EVENT:
+            self._on_unload_dll(event)
         elif event_code == win32api.EXIT_PROCESS_DEBUG_EVENT:
             self._on_exit_process(event)
         elif event_code == win32api.EXCEPTION_DEBUG_EVENT:
@@ -262,6 +264,36 @@ class Debugger:
             resolved = self.breakpoint_manager.resolve_pending_breakpoints_for_module(module_name)
             if resolved:
                 print(f"[DLL Load] Resolved {len(resolved)} pending breakpoint(s) for {module_name}")
+
+    def _on_unload_dll(self, event):
+        """Handle UNLOAD_DLL_DEBUG_EVENT.
+
+        When a DLL unloads, we need to move any active breakpoints back to pending
+        so they can be re-resolved when the DLL loads again.
+
+        Args:
+            event: DEBUG_EVENT structure
+        """
+        info = event.u.UnloadDll
+        base_address = info.lpBaseOfDll
+
+        # Find which module is being unloaded
+        module = self.module_manager.address_to_module(base_address)
+        if not module:
+            print(f"[DLL Unload] Unknown DLL at 0x{base_address:08x}")
+            return
+
+        module_name = module.name
+        print(f"[DLL Unload] Unloading {module_name} at 0x{base_address:08x}")
+
+        # Move any breakpoints in this module back to pending
+        if self.breakpoint_manager:
+            count = self.breakpoint_manager.unpend_breakpoints_for_module(module_name)
+            if count > 0:
+                print(f"[DLL Unload] Moved {count} breakpoint(s) back to pending for {module_name}")
+
+        # Remove module from module manager
+        self.module_manager.on_module_unloaded(base_address)
 
     def _on_exception(self, event):
         """Handle EXCEPTION_DEBUG_EVENT.

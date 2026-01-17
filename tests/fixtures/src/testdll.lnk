@@ -1,0 +1,6 @@
+debug all
+option quiet
+system nt_dll
+export DllFunction1=DllFunction1_
+export DllFunction2=DllFunction2_
+export DllFunction3=DllFunction3_

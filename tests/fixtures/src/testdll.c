@@ -14,6 +14,12 @@ __declspec(dllexport) int DllFunction2(int a, int b) {
     return sum * 3;
 }
 
+/* DLL exported function 3 - Takes 3 args to test register calling convention */
+__declspec(dllexport) int DllFunction3(int x, int y, int z) {
+    int result = x + y + z;  /* Line 19 - register breakpoint target */
+    return result * 2;
+}
+
 /* DLL entry point */
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
     switch (fdwReason) {

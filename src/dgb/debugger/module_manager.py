@@ -63,6 +63,22 @@ class ModuleManager:
         # Try to extract DWARF info
         self._load_debug_info(module)
 
+    def on_module_unloaded(self, base_address: int):
+        """Called when a module is unloaded (UNLOAD_DLL event).
+
+        Args:
+            base_address: Base address of module being unloaded
+        """
+        module = self.modules.get(base_address)
+        if module:
+            print(f"[Module] Unloaded: {module.name} from 0x{base_address:08x}")
+            # Remove from both dictionaries
+            del self.modules[base_address]
+            if module.name.lower() in self.modules_by_name:
+                del self.modules_by_name[module.name.lower()]
+        else:
+            print(f"[Module] Unloaded unknown module at 0x{base_address:08x}")
+
     def _get_code_section_offset(self, pe_path: str) -> int:
         """Get the virtual address offset of the code section.
 

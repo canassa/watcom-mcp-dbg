@@ -80,10 +80,10 @@ def test_dll_module_appears_after_load(debug_session, mcp_client):
     # testdll.dll should NOT be in list yet (or may be if LoadLibrary already happened)
     dll_present_before = "testdll.dll" in text1.lower()
 
-    # Set breakpoint after DLL is loaded (testdll_user.c:32)
+    # Set breakpoint after DLL is loaded (testdll_user.c:35 - first DLL call)
     mcp_client.call_tool("debugger_set_breakpoint", {
         "session_id": session_id,
-        "location": "testdll_user.c:32"
+        "location": "testdll_user.c:35"
     })
 
     # Continue to that breakpoint
